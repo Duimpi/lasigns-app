@@ -182,3 +182,4 @@ src/
 ├── stores/                     # Zustand state
 └── types/index.ts              # All TypeScript types
 ```
+ 
