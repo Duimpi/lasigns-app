@@ -1,7 +1,7 @@
 'use client'
 import { Suspense } from 'react'
 
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -59,8 +59,9 @@ interface JobWithItems extends Omit<JobCard, 'items'> {
   client?: Client & { phones?: { phone: string }[]; emails?: { email: string }[] }
 }
 
-function JobCardsPageInner() {
+export default function JobCardsPage() {
   const { profile } = useAuthStore()
+  // @ts-ignore
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -724,11 +725,3 @@ function CommentsSection({ jobCardId }: { jobCardId: string }) {
 }
  
  
-
-export default function JobCardsPage() {
-  return (
-    <React.Suspense fallback={null}>
-      <JobCardsPageInner />
-    </React.Suspense>
-  )
-}
