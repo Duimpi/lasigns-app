@@ -48,7 +48,7 @@ export function Sidebar() {
           alt="LA Signs & Graphics"
           width={160}
           height={60}
-          className="object-contain max-h-14"
+          className="object-contain max-h-14 mix-blend-screen"
           priority
         />
       </div>
