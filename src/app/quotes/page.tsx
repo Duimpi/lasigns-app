@@ -1,8 +1,7 @@
 'use client'
-export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Modal } from '@/components/ui/Modal'
@@ -61,7 +60,7 @@ interface QuoteWithItems extends Quote {
 
 export default function QuotesPage() {
   const { profile } = useAuthStore()
-  // searchParams removed
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [quotes, setQuotes] = useState<QuoteWithItems[]>([])
   const [filtered, setFiltered] = useState<QuoteWithItems[]>([])
@@ -98,8 +97,8 @@ export default function QuotesPage() {
 
   // Handle URL params for opening specific quote
   useEffect(() => {
-    const openId = null
-    const isNew = null
+    const openId = searchParams.get('open')
+    const isNew = searchParams.get('new')
     if (isNew) openCreate()
     else if (openId && quotes.length > 0) {
       const q = quotes.find(q => q.id === openId)
