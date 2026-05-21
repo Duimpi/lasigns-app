@@ -58,7 +58,7 @@ interface QuoteWithItems extends Quote {
   }[]
 }
 
-export default function QuotesPage() {
+function QuotesPageInner() {
   const { profile } = useAuthStore()
   // @ts-ignore
   const searchParams = useSearchParams()
@@ -602,5 +602,21 @@ export default function QuotesPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+function QuotesPageInner() {
+  return (
+    <Suspense fallback={null}>
+      <QuotesPageInner />
+    </Suspense>
+  )
+}
+
+export default function QuotesPage() {
+  return (
+    <Suspense fallback={null}>
+      <QuotesPageInner />
+    </Suspense>
   )
 }

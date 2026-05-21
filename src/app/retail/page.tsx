@@ -90,7 +90,7 @@ interface RetailJob {
   }[]
 }
 
-export default function RetailPage() {
+function RetailPageInner() {
   const { profile } = useAuthStore()
   // @ts-ignore
   const searchParams = useSearchParams()
@@ -780,5 +780,21 @@ export default function RetailPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+function RetailPageInner() {
+  return (
+    <Suspense fallback={null}>
+      <RetailPageInner />
+    </Suspense>
+  )
+}
+
+export default function RetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <RetailPageInner />
+    </Suspense>
   )
 }
