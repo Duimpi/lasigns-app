@@ -1,5 +1,5 @@
-'use client'\nexport const dynamic = 'force-dynamic'\nexport const dynamic = 'force-dynamic'
 'use client'
+export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
