@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic'
+'use client'\nexport const dynamic = 'force-dynamic'\nexport const dynamic = 'force-dynamic'
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
