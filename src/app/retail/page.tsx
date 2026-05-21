@@ -90,7 +90,7 @@ interface RetailJob {
   }[]
 }
 
-export default function RetailPage() {
+function RetailPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -779,5 +779,13 @@ export default function RetailPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+export default function RetailPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <RetailPageInner />
+    </React.Suspense>
   )
 }

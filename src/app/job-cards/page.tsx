@@ -59,7 +59,7 @@ interface JobWithItems extends Omit<JobCard, 'items'> {
   client?: Client & { phones?: { phone: string }[]; emails?: { email: string }[] }
 }
 
-export default function JobCardsPage() {
+function JobCardsPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -724,3 +724,11 @@ function CommentsSection({ jobCardId }: { jobCardId: string }) {
 }
  
  
+
+export default function JobCardsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <JobCardsPageInner />
+    </React.Suspense>
+  )
+}
