@@ -34,7 +34,7 @@ const clientSchema = z.object({
 
 type ClientFormData = z.infer<typeof clientSchema>
 
-interface ClientWithContact extends Client {
+interface ClientWithContact extends Omit<Client, 'phones' | 'emails'> {
   phones: { id: string; phone: string; label?: string; is_primary: boolean }[]
   emails: { id: string; email: string; label?: string; is_primary: boolean }[]
 }
