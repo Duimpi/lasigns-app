@@ -53,7 +53,7 @@ const jobSchema = z.object({
 
 type JobFormData = z.infer<typeof jobSchema>
 
-interface JobWithItems extends JobCard {
+interface JobWithItems extends Omit<JobCard, 'items'> {
   items: { id: string; description: string; quantity: number; unit_price: number; total: number; size?: string; sort_order: number }[]
   client?: Client & { phones?: { phone: string }[]; emails?: { email: string }[] }
 }
