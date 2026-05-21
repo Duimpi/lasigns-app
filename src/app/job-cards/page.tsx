@@ -682,7 +682,7 @@ function CommentsSection({ jobCardId }: { jobCardId: string }) {
   async function loadComments() {
     const { data } = await supabase.from('comments').select('id, content, created_at, author:profiles!author_id(full_name)')
       .eq('job_card_id', jobCardId).order('created_at', { ascending: true })
-    setComments((data as typeof comments) || [])
+    setComments((data as any) || [])
   }
 
   async function sendComment() {
