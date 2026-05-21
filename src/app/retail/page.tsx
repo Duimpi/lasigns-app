@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Modal } from '@/components/ui/Modal'
@@ -93,7 +93,7 @@ interface RetailJob {
 
 export default function RetailPage() {
   const { profile } = useAuthStore()
-  const searchParams = useSearchParams()
+  // searchParams removed
   const router = useRouter()
 
   const [jobs, setJobs] = useState<RetailJob[]>([])
@@ -137,8 +137,8 @@ export default function RetailPage() {
   useEffect(() => { loadJobs(); loadBranches(); loadClients() }, [])
 
   useEffect(() => {
-    const openId = searchParams.get('open')
-    const isNew = searchParams.get('new')
+    const openId = null
+    const isNew = null
     if (isNew) openCreate()
     else if (openId && jobs.length > 0) {
       const j = jobs.find(j => j.id === openId)
