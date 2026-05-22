@@ -1,5 +1,4 @@
 'use client'
-
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
@@ -17,21 +16,20 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
-import {
-  Plus, Download, Mail, Printer, Trash2,
-  X, Briefcase, CheckSquare, Square, Layers
-} from 'lucide-react'
+import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
 const STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
+const VAT_RATE = 15
 
 const lineItemSchema = z.object({
   description: z.string().min(1, 'Required'),
   quantity: z.number().min(0.01),
   unit_price: z.number().min(0),
-  size: z.string().optional(),
+  width: z.string().optional(),
+  height: z.string().optional(),
 })
 
 const jobSchema = z.object({
@@ -45,9 +43,7 @@ const jobSchema = z.object({
   assigned_worker: z.string().optional(),
   due_date: z.string().optional(),
   linked_quote_id: z.string().optional(),
-  sales_rep: z.string().optional(),
   date_completed: z.string().optional(),
-  vat_rate: z.number().min(0).max(100),
   items: z.array(lineItemSchema),
 })
 
@@ -78,28 +74,27 @@ function JobCardsPageInner() {
   const [clients, setClients] = useState<Client[]>([])
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [clientSearch, setClientSearch] = useState('')
-  const [activeTab, setActiveTab] = useState<'details' | 'items' | 'comments'>('details')
-  // Two-job print selection
   const [selectedForPrint, setSelectedForPrint] = useState<string[]>([])
   const [printSelectMode, setPrintSelectMode] = useState(false)
-  const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const [jobComments, setJobComments] = useState<{ id: string; content: string; created_at: string; author: { full_name: string } | null }[]>([])
+  const [newComment, setNewComment] = useState('')
+  const [isSendingComment, setIsSendingComment] = useState(false)
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<JobFormData>({
     resolver: zodResolver(jobSchema),
     defaultValues: {
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', sales_rep: '', date_completed: '', vat_rate: 15,
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      due_date: '', date_completed: '',
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     },
   })
 
   const { fields: itemFields, append: addItem, remove: removeItem } = useFieldArray({ control, name: 'items' })
   const watchItems = watch('items')
-  const watchVatRate = watch('vat_rate')
 
   const subtotal = watchItems?.reduce((sum, i) => sum + (Number(i.quantity) * Number(i.unit_price) || 0), 0) || 0
-  const vatAmount = subtotal * (watchVatRate / 100)
+  const vatAmount = subtotal * (VAT_RATE / 100)
   const total = subtotal + vatAmount
 
   useEffect(() => { loadJobs(); loadClients(); loadQuotes() }, [])
@@ -154,18 +149,13 @@ function JobCardsPageInner() {
     try {
       const { data, error } = await supabase
         .from('job_cards')
-        .select(`
-          *,
-          items:job_card_items(*),
-          client:clients(*, phones:client_phones(*), emails:client_emails(*))
-        `)
+        .select(`*, items:job_card_items(*), client:clients(*, phones:client_phones(*), emails:client_emails(*))`)
         .eq('is_retail', false)
         .order('created_at', { ascending: false })
       if (error) throw error
       setJobs((data as JobWithItems[]) || [])
-    } catch (err: unknown) {
-      toast.error('Failed to load job cards')
-    } finally { setIsLoading(false) }
+    } catch { toast.error('Failed to load job cards') }
+    finally { setIsLoading(false) }
   }
 
   async function loadClients() {
@@ -181,14 +171,21 @@ function JobCardsPageInner() {
     setQuotes((data as Quote[]) || [])
   }
 
+  async function loadComments(jobId: string) {
+    const { data } = await supabase
+      .from('comments').select('id, content, created_at, author:profiles!author_id(full_name)')
+      .eq('job_card_id', jobId).order('created_at', { ascending: true })
+    setJobComments((data as any) || [])
+  }
+
   function openCreate() {
     setEditingJob(null)
-    setActiveTab('details')
+    setJobComments([])
     reset({
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', sales_rep: '', date_completed: '', vat_rate: 15,
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      due_date: '', date_completed: '',
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
     router.push('/job-cards')
@@ -196,7 +193,7 @@ function JobCardsPageInner() {
 
   function openEdit(job: JobWithItems) {
     setEditingJob(job)
-    setActiveTab('details')
+    loadComments(job.id)
     reset({
       title: job.title,
       description: job.description || '',
@@ -208,15 +205,19 @@ function JobCardsPageInner() {
       assigned_worker: job.assigned_worker || '',
       due_date: job.due_date || '',
       linked_quote_id: job.linked_quote_id || undefined,
-      sales_rep: job.sales_rep || '',
       date_completed: job.date_completed || '',
-      vat_rate: job.vat_rate,
       items: job.items.length > 0
-        ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
-            description: i.description, quantity: i.quantity,
-            unit_price: i.unit_price, size: i.size || '',
-          }))
-        : [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+        ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => {
+            const parts = (i.size || '').split('x')
+            return {
+              description: i.description,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              width: parts[0] || '',
+              height: parts[1] || '',
+            }
+          })
+        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
   }
@@ -227,12 +228,12 @@ function JobCardsPageInner() {
       let jobNumber = editingJob?.job_number
       if (!editingJob) {
         const { data: numData, error: numErr } = await supabase.rpc('get_next_job_number')
-        if (numErr) throw numErr
+        if (numErr) throw new Error(`Number error: ${numErr.message}`)
         jobNumber = numData
       }
 
       const sub = data.items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
-      const vat = sub * ((Number(data.vat_rate) || 0) / 100)
+      const vat = sub * (VAT_RATE / 100)
 
       const payload: Record<string, unknown> = {
         title: data.title,
@@ -246,9 +247,9 @@ function JobCardsPageInner() {
         due_date: data.due_date || null,
         linked_quote_id: data.linked_quote_id || null,
         is_retail: false,
-        sales_rep: data.sales_rep || null,
+        sales_rep: null,
         date_completed: data.date_completed || null,
-        vat_rate: Number(data.vat_rate) || 15,
+        vat_rate: VAT_RATE,
         subtotal: sub,
         vat_amount: vat,
         total: sub + vat,
@@ -259,32 +260,29 @@ function JobCardsPageInner() {
 
       if (editingJob) {
         const { error } = await supabase.from('job_cards').update(payload).eq('id', editingJob.id)
-        if (error) throw error
+        if (error) throw new Error(error.message)
         jobId = editingJob.id
         await supabase.from('job_card_items').delete().eq('job_card_id', jobId)
       } else {
         payload.job_number = jobNumber
         const { data: created, error } = await supabase.from('job_cards').insert(payload).select().single()
-        if (error) throw error
+        if (error) throw new Error(error.message)
         jobId = created.id
       }
 
-      if (data.items.length > 0) {
-        const itemsToInsert = data.items
-          .filter(item => item.description.trim())
-          .map((item, i) => ({
-            job_card_id: jobId,
-            description: item.description,
-            quantity: Number(item.quantity) || 1,
-            unit_price: Number(item.unit_price) || 0,
-            total: (Number(item.quantity) || 1) * (Number(item.unit_price) || 0),
-            size: item.size || null,
-            sort_order: i,
-          }))
-        if (itemsToInsert.length > 0) {
-          const { error: itemErr } = await supabase.from('job_card_items').insert(itemsToInsert)
-          if (itemErr) throw itemErr
-        }
+      const validItems = data.items.filter(item => item.description.trim())
+      if (validItems.length > 0) {
+        const itemsToInsert = validItems.map((item, i) => ({
+          job_card_id: jobId,
+          description: item.description,
+          quantity: Number(item.quantity) || 1,
+          unit_price: Number(item.unit_price) || 0,
+          total: (Number(item.quantity) || 1) * (Number(item.unit_price) || 0),
+          size: item.width && item.height ? `${item.width}x${item.height}` : (item.width || item.height || null),
+          sort_order: i,
+        }))
+        const { error: itemErr } = await supabase.from('job_card_items').insert(itemsToInsert)
+        if (itemErr) throw new Error(itemErr.message)
       }
 
       await supabase.from('activity_logs').insert({
@@ -317,6 +315,20 @@ function JobCardsPageInner() {
     finally { setIsDeleting(false) }
   }
 
+  async function sendComment() {
+    if (!newComment.trim() || !profile || !editingJob) return
+    setIsSendingComment(true)
+    try {
+      await supabase.from('comments').insert({
+        job_card_id: editingJob.id,
+        author_id: profile.id,
+        content: newComment.trim(),
+      })
+      setNewComment('')
+      loadComments(editingJob.id)
+    } finally { setIsSendingComment(false) }
+  }
+
   function downloadPDF(job: JobWithItems) {
     const doc = generateJobCardPDF(job as any)
     doc.save(`${job.job_number}.pdf`)
@@ -332,43 +344,29 @@ function JobCardsPageInner() {
   }
 
   async function emailJobCard(job: JobWithItems) {
-    setIsSendingEmail(true)
-    try {
-      const doc = generateJobCardPDF(job as any)
-      const pdfBlob = doc.output('blob')
-      // Download for manual email attachment
-      downloadBlob(pdfBlob, `${job.job_number}.pdf`)
-      toast.success(
-        `PDF downloaded — please attach to email and send to baganiholdings@gmail.com`,
-        { duration: 6000 }
-      )
-    } finally { setIsSendingEmail(false) }
+    const doc = generateJobCardPDF(job as any)
+    const pdfBlob = doc.output('blob')
+    downloadBlob(pdfBlob, `${job.job_number}.pdf`)
+    toast.success(`PDF downloaded — attach to email and send to baganiholdings@gmail.com`, { duration: 6000 })
   }
 
   function togglePrintSelect(jobId: string) {
     setSelectedForPrint(prev => {
       if (prev.includes(jobId)) return prev.filter(id => id !== jobId)
-      if (prev.length >= 2) {
-        toast.error('Select max 2 jobs for combined print')
-        return prev
-      }
+      if (prev.length >= 2) { toast.error('Select max 2 jobs'); return prev }
       return [...prev, jobId]
     })
   }
 
   function printTwoJobs() {
-    if (selectedForPrint.length !== 2) {
-      toast.error('Select exactly 2 jobs')
-      return
-    }
+    if (selectedForPrint.length !== 2) { toast.error('Select exactly 2 jobs'); return }
     const job1 = jobs.find(j => j.id === selectedForPrint[0])
     const job2 = jobs.find(j => j.id === selectedForPrint[1])
     if (!job1 || !job2) return
     const doc = generateTwoJobCardsPDF(job1 as any, job2 as any)
     const blob = doc.output('blob')
     const url = URL.createObjectURL(blob)
-    const win = window.open(url, '_blank')
-    win?.print()
+    window.open(url, '_blank')?.print()
     setPrintSelectMode(false)
     setSelectedForPrint([])
   }
@@ -389,17 +387,12 @@ function JobCardsPageInner() {
               className={`btn-sm ${printSelectMode ? 'btn-primary' : 'btn-secondary'}`}
             >
               <Layers className="w-4 h-4" />
-              {printSelectMode ? 'Cancel Select' : 'Print 2 Jobs'}
+              {printSelectMode ? 'Cancel' : 'Print 2 Jobs'}
             </button>
             {printSelectMode && selectedForPrint.length === 2 && (
               <button onClick={printTwoJobs} className="btn-primary btn-sm">
-                <Printer className="w-4 h-4" /> Print Selected ({selectedForPrint.length}/2)
+                <Printer className="w-4 h-4" /> Print ({selectedForPrint.length}/2)
               </button>
-            )}
-            {printSelectMode && selectedForPrint.length < 2 && (
-              <span className="btn-secondary btn-sm pointer-events-none opacity-60">
-                Select {2 - selectedForPrint.length} more job{selectedForPrint.length === 1 ? '' : 's'}
-              </span>
             )}
             <button onClick={openCreate} className="btn-primary btn-sm">
               <Plus className="w-4 h-4" /> New Job Card
@@ -413,15 +406,11 @@ function JobCardsPageInner() {
           <SearchInput value={search} onChange={setSearch} placeholder="Search job cards..." className="max-w-xs" />
           <div className="flex gap-1 flex-wrap">
             {['all', ...STATUSES].map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
+              <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
                 }`}
-              >
-                {s === 'all' ? 'All' : s}
-              </button>
+              >{s === 'all' ? 'All' : s}</button>
             ))}
           </div>
           <select value={workerFilter} onChange={(e) => setWorkerFilter(e.target.value)} className="input w-auto text-sm">
@@ -433,7 +422,7 @@ function JobCardsPageInner() {
         {printSelectMode && (
           <div className="bg-accent-muted border border-accent/30 rounded-lg px-4 py-3 text-sm text-accent flex items-center gap-2">
             <Layers className="w-4 h-4" />
-            Click the checkbox on any 2 job cards to print them together on one A4 page.
+            Select 2 job cards to print them together on one A4 page.
           </div>
         )}
 
@@ -449,37 +438,26 @@ function JobCardsPageInner() {
               <thead>
                 <tr>
                   {printSelectMode && <th className="w-8"></th>}
-                  <th>Job #</th>
-                  <th>Title</th>
-                  <th>Client</th>
-                  <th>Worker</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Due</th>
-                  <th className="w-28">Actions</th>
+                  <th>Job #</th><th>Title</th><th>Client</th><th>Worker</th>
+                  <th>Priority</th><th>Status</th><th>Due</th><th className="w-28">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(job => {
                   const isSelected = selectedForPrint.includes(job.id)
                   return (
-                    <tr
-                      key={job.id}
-                      onClick={() => printSelectMode ? togglePrintSelect(job.id) : openEdit(job)}
+                    <tr key={job.id} onClick={() => printSelectMode ? togglePrintSelect(job.id) : openEdit(job)}
                       className={isSelected ? 'bg-accent-muted border-l-2 border-accent' : ''}
                     >
                       {printSelectMode && (
                         <td onClick={e => { e.stopPropagation(); togglePrintSelect(job.id) }}>
-                          {isSelected
-                            ? <CheckSquare className="w-4 h-4 text-accent" />
-                            : <Square className="w-4 h-4 text-text-muted" />
-                          }
+                          {isSelected ? <CheckSquare className="w-4 h-4 text-accent" /> : <Square className="w-4 h-4 text-text-muted" />}
                         </td>
                       )}
                       <td><span className="font-mono text-accent font-semibold text-sm">{job.job_number}</span></td>
                       <td><div className="font-medium max-w-[180px] truncate">{job.title}</div></td>
                       <td className="text-text-secondary">{job.client_name || '—'}</td>
-                      <td className="text-text-secondary text-sm">{job.assigned_worker || <span className="text-text-muted">Unassigned</span>}</td>
+                      <td className="text-text-secondary text-sm">{job.assigned_worker || <span className="text-text-muted">—</span>}</td>
                       <td><StatusBadge status={job.priority} type="priority" /></td>
                       <td><StatusBadge status={job.status} /></td>
                       <td className="text-text-muted text-sm">
@@ -491,9 +469,9 @@ function JobCardsPageInner() {
                       </td>
                       <td>
                         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => downloadPDF(job)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => downloadPDF(job)} className="btn-icon" title="Download"><Download className="w-3.5 h-3.5" /></button>
                           <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => emailJobCard(job)} className="btn-icon" title="Email to baganiholdings"><Mail className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => emailJobCard(job)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
                           {profile?.role === 'admin' && (
                             <button onClick={() => setDeleteTarget(job)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                           )}
@@ -508,7 +486,7 @@ function JobCardsPageInner() {
         </div>
       </div>
 
-      {/* Job Card Form */}
+      {/* Job Card Form — ALL IN ONE, NO TABS */}
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
@@ -523,133 +501,175 @@ function JobCardsPageInner() {
           </div>
         )}
       >
-        <div className="flex gap-1 mb-6 border-b border-border -mt-2">
-          {(['details', 'items', 'comments'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2.5 text-sm font-semibold capitalize border-b-2 transition-colors ${
-                activeTab === tab ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'
-              }`}
-            >{tab}</button>
-          ))}
-        </div>
-
         <form onSubmit={handleSubmit(onSubmit)}>
-          {activeTab === 'details' && (
-            <div className="space-y-5">
-              <div>
-                <label className="label">Job Title *</label>
-                <input {...register('title')} className="input" placeholder="e.g. Vehicle Wrap — Toyota Hilux" />
-                {errors.title && <p className="form-error">{errors.title.message}</p>}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="relative">
-                  <label className="label">Client</label>
-                  <input {...register('client_name')} className="input" placeholder="Search client..."
-                    onChange={(e) => { register('client_name').onChange(e); setClientSearch(e.target.value) }}
-                  />
-                  {clientSearch && filteredClients.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
-                      {filteredClients.map(c => (
-                        <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                          onMouseDown={() => { setValue('client_id', c.id); setValue('client_name', c.name); setClientSearch('') }}>
-                          <p className="text-sm text-text-primary">{c.name}</p>
-                          {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="label">Linked Quote</label>
-                  <select {...register('linked_quote_id')} className="input">
-                    <option value="">— None —</option>
-                    {quotes.map(q => <option key={q.id} value={q.id}>{q.quote_number} — {q.client_name}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Status</label>
-                  <select {...register('status')} className="input">
-                    {STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Priority</label>
-                  <select {...register('priority')} className="input">
-                    {PRIORITIES.map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Assigned Worker</label>
-                  <select {...register('assigned_worker')} className="input">
-                    <option value="">— Unassigned —</option>
-                    {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
-                <div><label className="label">Sales Rep</label><input {...register('sales_rep')} className="input" /></div>
-                <div><label className="label">Date Completed</label><input {...register('date_completed')} type="date" className="input" /></div>
-              </div>
-              <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[80px] resize-none" /></div>
-              <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
-            </div>
-          )}
+          <div className="space-y-6">
 
-          {activeTab === 'items' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex gap-4 items-center">
-                  <label className="label mb-0">VAT Rate (%)</label>
-                  <input {...register('vat_rate', { valueAsNumber: true })} type="number" step="0.01" className="input w-24" />
+            {/* ── SECTION 1: JOB INFO ── */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Job Details</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="label">Job Title *</label>
+                  <input {...register('title')} className="input" placeholder="e.g. Vehicle Wrap — Toyota Hilux" />
+                  {errors.title && <p className="form-error">{errors.title.message}</p>}
                 </div>
-                <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, size: '' })} className="btn-ghost btn-sm text-accent">
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="relative">
+                    <label className="label">Client</label>
+                    <input {...register('client_name')} className="input" placeholder="Search client..."
+                      onChange={(e) => { register('client_name').onChange(e); setClientSearch(e.target.value) }}
+                    />
+                    {clientSearch && filteredClients.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
+                        {filteredClients.map(c => (
+                          <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
+                            onMouseDown={() => { setValue('client_id', c.id); setValue('client_name', c.name); setClientSearch('') }}>
+                            <p className="text-sm text-text-primary">{c.name}</p>
+                            {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label">Linked Quote</label>
+                    <select {...register('linked_quote_id')} className="input">
+                      <option value="">— None —</option>
+                      {quotes.map(q => <option key={q.id} value={q.id}>{q.quote_number} — {q.client_name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="label">Status</label>
+                    <select {...register('status')} className="input">
+                      {STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Priority</label>
+                    <select {...register('priority')} className="input">
+                      {PRIORITIES.map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Assigned Worker</label>
+                    <select {...register('assigned_worker')} className="input">
+                      <option value="">— Unassigned —</option>
+                      {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
+                  <div><label className="label">Date Completed</label><input {...register('date_completed')} type="date" className="input" /></div>
+                </div>
+
+                <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
+                <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
+              </div>
+            </div>
+
+            {/* ── SECTION 2: LINE ITEMS ── */}
+            <div className="border-t border-border pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">Line Items</p>
+                <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '' })}
+                  className="btn-ghost btn-sm text-accent">
                   <Plus className="w-3.5 h-3.5" /> Add Item
                 </button>
               </div>
-              <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted px-1">
-                <div className="col-span-5">Description</div>
-                <div className="col-span-2">Size</div>
+
+              <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted px-1 mb-2">
+                <div className="col-span-4">Description</div>
+                <div className="col-span-3">Size (W × H)</div>
                 <div className="col-span-2">Qty</div>
                 <div className="col-span-2">Unit Price</div>
                 <div className="col-span-1"></div>
               </div>
+
               <div className="space-y-2">
-                {itemFields.map((field, i) => (
-                  <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-5"><input {...register(`items.${i}.description`)} className="input" placeholder="Description" /></div>
-                    <div className="col-span-2"><input {...register(`items.${i}.size`)} className="input" placeholder="Size" /></div>
-                    <div className="col-span-2"><input {...register(`items.${i}.quantity`, { valueAsNumber: true })} type="number" step="any" min="0" className="input" /></div>
-                    <div className="col-span-2"><input {...register(`items.${i}.unit_price`, { valueAsNumber: true })} type="number" step="0.01" min="0" className="input" /></div>
-                    <div className="col-span-1 flex justify-end">
-                      {itemFields.length > 1 && (
-                        <button type="button" onClick={() => removeItem(i)} className="btn-icon text-red-400/50 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
-                      )}
+                {itemFields.map((field, i) => {
+                  const qty = Number(watchItems?.[i]?.quantity) || 0
+                  const price = Number(watchItems?.[i]?.unit_price) || 0
+                  return (
+                    <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-4">
+                        <input {...register(`items.${i}.description`)} className="input" placeholder="Description" />
+                      </div>
+                      <div className="col-span-3 flex items-center gap-1">
+                        <input {...register(`items.${i}.width`)} className="input" placeholder="W" />
+                        <span className="text-text-muted text-sm font-bold shrink-0">×</span>
+                        <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
+                      </div>
+                      <div className="col-span-2">
+                        <input {...register(`items.${i}.quantity`, { valueAsNumber: true })} type="number" step="any" min="0" className="input" />
+                      </div>
+                      <div className="col-span-2">
+                        <input {...register(`items.${i}.unit_price`, { valueAsNumber: true })} type="number" step="0.01" min="0" className="input" />
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        {itemFields.length > 1 && (
+                          <button type="button" onClick={() => removeItem(i)} className="btn-icon text-red-400/50 hover:text-red-400">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
-              <div className="border-t border-border pt-4 space-y-1.5">
+
+              <div className="border-t border-border pt-4 mt-3 space-y-1.5">
                 <div className="flex justify-between text-sm text-text-secondary"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-                <div className="flex justify-between text-sm text-text-secondary"><span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span></div>
+                <div className="flex justify-between text-sm text-text-secondary"><span>VAT (15%)</span><span>{formatCurrency(vatAmount)}</span></div>
                 <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5"><span>TOTAL</span><span>{formatCurrency(total)}</span></div>
               </div>
             </div>
-          )}
 
-          {activeTab === 'comments' && editingJob && <CommentsSection jobCardId={editingJob.id} />}
-          {activeTab === 'comments' && !editingJob && <p className="text-text-muted text-sm text-center py-8">Save the job card first to add comments</p>}
+            {/* ── SECTION 3: COMMENTS ── */}
+            {editingJob && (
+              <div className="border-t border-border pt-5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
+                  <MessageSquare className="w-3.5 h-3.5" /> Comments
+                </p>
+                <div className="space-y-2 max-h-40 overflow-y-auto mb-3">
+                  {jobComments.length === 0 ? (
+                    <p className="text-text-muted text-sm italic">No comments yet</p>
+                  ) : (
+                    jobComments.map(c => (
+                      <div key={c.id} className="bg-bg-elevated rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-accent">{c.author?.full_name || 'Unknown'}</span>
+                          <span className="text-xs text-text-muted">{formatDate(c.created_at)}</span>
+                        </div>
+                        <p className="text-sm text-text-primary">{c.content}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input value={newComment} onChange={(e) => setNewComment(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() } }}
+                    className="input flex-1" placeholder="Add a comment..." />
+                  <button type="button" onClick={sendComment} disabled={isSendingComment || !newComment.trim()} className="btn-primary">
+                    {isSendingComment ? <span className="spinner w-4 h-4" /> : 'Send'}
+                  </button>
+                </div>
+              </div>
+            )}
 
-          {activeTab !== 'comments' && (
-            <div className="flex gap-3 mt-6">
+            {/* ── SAVE BUTTON ── */}
+            <div className="flex gap-3 pt-2 border-t border-border">
               <button type="button" onClick={() => setIsFormOpen(false)} className="btn-secondary flex-1">Cancel</button>
               <button type="submit" disabled={isSaving} className="btn-primary flex-1">
                 {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : editingJob ? 'Update Job Card' : 'Create Job Card'}
               </button>
             </div>
-          )}
+          </div>
         </form>
       </Modal>
 
@@ -665,68 +685,10 @@ function JobCardsPageInner() {
   )
 }
 
-function CommentsSection({ jobCardId }: { jobCardId: string }) {
-  const { profile } = useAuthStore()
-  const [comments, setComments] = useState<{ id: string; content: string; created_at: string; author: { full_name: string } | null }[]>([])
-  const [newComment, setNewComment] = useState('')
-  const [isSending, setIsSending] = useState(false)
-
-  useEffect(() => {
-    loadComments()
-    const channel = supabase
-      .channel(`comments-${jobCardId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: `job_card_id=eq.${jobCardId}` }, loadComments)
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [jobCardId])
-
-  async function loadComments() {
-    const { data } = await supabase.from('comments').select('id, content, created_at, author:profiles!author_id(full_name)')
-      .eq('job_card_id', jobCardId).order('created_at', { ascending: true })
-    setComments((data as any) || [])
-  }
-
-  async function sendComment() {
-    if (!newComment.trim() || !profile) return
-    setIsSending(true)
-    try {
-      await supabase.from('comments').insert({ job_card_id: jobCardId, author_id: profile.id, content: newComment.trim() })
-      setNewComment('')
-    } finally { setIsSending(false) }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-3 max-h-64 overflow-y-auto">
-        {comments.length === 0
-          ? <p className="text-text-muted text-sm text-center py-6">No comments yet</p>
-          : comments.map(c => (
-            <div key={c.id} className="bg-bg-elevated rounded-lg p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold text-accent">{c.author?.full_name || 'Unknown'}</span>
-                <span className="text-xs text-text-muted">{formatDate(c.created_at)}</span>
-              </div>
-              <p className="text-sm text-text-primary">{c.content}</p>
-            </div>
-          ))
-        }
-      </div>
-      <div className="flex gap-2">
-        <input value={newComment} onChange={(e) => setNewComment(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() } }}
-          className="input flex-1" placeholder="Add a comment..." />
-        <button onClick={sendComment} disabled={isSending || !newComment.trim()} className="btn-primary">
-          {isSending ? <span className="spinner w-4 h-4" /> : 'Send'}
-        </button>
-      </div>
-    </div>
-  )
-}
- export default function JobCardsPage() {
+export default function JobCardsPage() {
   return (
     <Suspense fallback={null}>
       <JobCardsPageInner />
     </Suspense>
   )
 }
- 
