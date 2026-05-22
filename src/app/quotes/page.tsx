@@ -605,14 +605,6 @@ function QuotesPageInner() {
   )
 }
 
-function QuotesPageInner() {
-  return (
-    <Suspense fallback={null}>
-      <QuotesPageInner />
-    </Suspense>
-  )
-}
-
 export default function QuotesPage() {
   return (
     <Suspense fallback={null}>

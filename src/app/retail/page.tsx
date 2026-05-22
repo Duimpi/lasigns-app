@@ -783,14 +783,6 @@ function RetailPageInner() {
   )
 }
 
-function RetailPageInner() {
-  return (
-    <Suspense fallback={null}>
-      <RetailPageInner />
-    </Suspense>
-  )
-}
-
 export default function RetailPage() {
   return (
     <Suspense fallback={null}>
