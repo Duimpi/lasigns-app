@@ -36,6 +36,37 @@ const STATUS_ORDER: Record<string, number> = {
   completed: 4, delivered: 5 
 }
 
+
+function JobRow({ job, router }: { job: any, router: any }) {
+  const isOverdue = job.due_date && new Date(job.due_date) < new Date() && !['completed','delivered'].includes(job.status)
+  const isUrgent = job.priority === 'urgent'
+  return (
+    <div
+      onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
+      className={`px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors ${isUrgent ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-text-primary truncate">{job.title}</p>
+          <p className="text-[11px] text-text-muted mt-0.5">
+            {job.job_number}{job.client_name ? ` · ${job.client_name}` : ''}{job.is_retail ? ' · Retail' : ''}
+          </p>
+          {job.due_date && (
+            <p className={`text-[11px] mt-0.5 flex items-center gap-1 ${isOverdue ? 'text-red-400 font-semibold' : 'text-text-muted'}`}>
+              <Clock className="w-2.5 h-2.5" />
+              {isOverdue ? 'OVERDUE · ' : 'Due '}{formatDate(job.due_date)}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <StatusBadge status={job.status} />
+          {isUrgent && <span className="text-[10px] font-bold text-red-400 uppercase">Urgent</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const { profile } = useAuthStore()
   const router = useRouter()
@@ -46,6 +77,7 @@ export default function DashboardPage() {
   const [allActiveJobs, setAllActiveJobs] = useState<WorkerJob[]>([])
   const [recentQuotes, setRecentQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [selectedWorker, setSelectedWorker] = useState<string>('All')
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -161,80 +193,93 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* DAILY WORK — All staff */}
+        {/* DAILY WORK */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-text-primary flex items-center gap-2">
               <Clock className="w-4 h-4 text-accent" />
-              Daily Work — All Staff
+              Daily Work
             </h2>
-            <Link href="/job-cards" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
+            <div className="flex items-center gap-3">
+              <select
+                value={selectedWorker}
+                onChange={(e) => setSelectedWorker(e.target.value)}
+                className="input w-auto text-sm py-1.5"
+              >
+                <option value="All">All Staff</option>
+                {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
+              </select>
+              <Link href="/job-cards" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            {WORKERS.map(worker => {
-              const workerJobs = sortJobs(allActiveJobs.filter(j => j.assigned_worker === worker))
-              return (
-                <div key={worker} className="card overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
-                        <span className="text-xs font-bold text-accent">{worker[0]}</span>
+          {selectedWorker === 'All' ? (
+            // Show all workers in 3 columns
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              {WORKERS.map(worker => {
+                const workerJobs = sortJobs(allActiveJobs.filter(j => j.assigned_worker === worker))
+                return (
+                  <div key={worker} className="card overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
+                          <span className="text-xs font-bold text-accent">{worker[0]}</span>
+                        </div>
+                        <span className="font-semibold text-sm text-text-primary">{worker}</span>
                       </div>
-                      <span className="font-semibold text-sm text-text-primary">{worker}</span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        workerJobs.length === 0 ? 'bg-bg-elevated text-text-muted' :
+                        workerJobs.some(j => j.priority === 'urgent') ? 'bg-red-500/20 text-red-400' :
+                        'bg-accent/20 text-accent'
+                      }`}>
+                        {workerJobs.length} job{workerJobs.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      workerJobs.length === 0 ? 'bg-bg-elevated text-text-muted' :
-                      workerJobs.some(j => j.priority === 'urgent') ? 'bg-red-500/20 text-red-400' :
-                      'bg-accent/20 text-accent'
-                    }`}>
-                      {workerJobs.length} job{workerJobs.length !== 1 ? 's' : ''}
-                    </span>
+                    <div className="divide-y divide-border/40">
+                      {isLoading ? (
+                        <div className="py-6 text-center text-xs text-text-muted">Loading...</div>
+                      ) : workerJobs.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-text-muted">No active jobs</div>
+                      ) : (
+                        workerJobs.map(job => <JobRow key={job.id} job={job} router={router} />)
+                      )}
+                    </div>
                   </div>
-                  <div className="divide-y divide-border/40">
-                    {isLoading ? (
-                      <div className="py-6 text-center text-xs text-text-muted">Loading...</div>
-                    ) : workerJobs.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-text-muted">No active jobs</div>
-                    ) : (
-                      workerJobs.map(job => {
-                        const isOverdue = job.due_date && new Date(job.due_date) < new Date() && !['completed','delivered'].includes(job.status)
-                        const isUrgent = job.priority === 'urgent'
-                        return (
-                          <div
-                            key={job.id}
-                            onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
-                            className={`px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors ${isUrgent ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-text-primary truncate">{job.title}</p>
-                                <p className="text-[11px] text-text-muted mt-0.5">
-                                  {job.job_number}
-                                  {job.client_name ? ` · ${job.client_name}` : ''}
-                                  {job.is_retail ? ' · Retail' : ''}
-                                </p>
-                                {job.due_date && (
-                                  <p className={`text-[11px] mt-0.5 flex items-center gap-1 ${isOverdue ? 'text-red-400 font-semibold' : 'text-text-muted'}`}>
-                                    <Clock className="w-2.5 h-2.5" />
-                                    {isOverdue ? 'OVERDUE · ' : 'Due '}{formatDate(job.due_date)}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end gap-1 shrink-0">
-                                <StatusBadge status={job.status} />
-                                {isUrgent && <span className="text-[10px] font-bold text-red-400 uppercase">Urgent</span>}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })
-                    )}
+                )
+              })}
+            </div>
+          ) : (
+            // Show single worker full width
+            <div className="card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
+                    <span className="text-xs font-bold text-accent">{selectedWorker[0]}</span>
                   </div>
+                  <span className="font-semibold text-sm text-text-primary">{selectedWorker}</span>
                 </div>
-              )
-            })}
-          </div>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length === 0
+                    ? 'bg-bg-elevated text-text-muted'
+                    : sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).some(j => j.priority === 'urgent')
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-accent/20 text-accent'
+                }`}>
+                  {sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length} jobs
+                </span>
+              </div>
+              <div className="divide-y divide-border/40">
+                {isLoading ? (
+                  <div className="py-6 text-center text-xs text-text-muted">Loading...</div>
+                ) : sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length === 0 ? (
+                  <div className="py-6 text-center text-xs text-text-muted">No active jobs for {selectedWorker}</div>
+                ) : (
+                  sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker))
+                    .map(job => <JobRow key={job.id} job={job} router={router} />)
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Unassigned jobs */}
           {unassignedJobs.length > 0 && (
