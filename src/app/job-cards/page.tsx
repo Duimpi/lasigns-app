@@ -317,7 +317,7 @@ function JobCardsPageInner() {
       toast.success('Job card deleted')
       setDeleteTarget(null)
       loadJobs()
-    } catch { toast.error('Failed to delete') }
+    } catch (err: any) { toast.error(`Delete failed: ${err?.message || err}`) }
     finally { setIsDeleting(false) }
   }
 

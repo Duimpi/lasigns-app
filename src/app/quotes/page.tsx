@@ -295,7 +295,7 @@ function QuotesPageInner() {
       toast.success('Quote deleted')
       setDeleteTarget(null)
       loadQuotes()
-    } catch { toast.error('Failed to delete') }
+    } catch (err: any) { toast.error(`Delete failed: ${err?.message || err}`) }
     finally { setIsDeleting(false) }
   }
 

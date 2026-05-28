@@ -394,7 +394,7 @@ function RetailPageInner() {
       toast.success('Retail job deleted')
       setDeleteTarget(null)
       loadJobs()
-    } catch { toast.error('Failed to delete') }
+    } catch (err: any) { toast.error(`Delete failed: ${err?.message || err}`) }
     finally { setIsDeleting(false) }
   }
 
