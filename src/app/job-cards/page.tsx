@@ -228,8 +228,14 @@ function JobCardsPageInner() {
       let jobNumber = editingJob?.job_number
       if (!editingJob) {
         const { data: numData, error: numErr } = await supabase.rpc('get_next_job_number')
-        if (numErr) throw new Error(`Number error: ${numErr.message}`)
-        jobNumber = numData
+        if (numErr || !numData) {
+          // Fallback: use timestamp-based number
+          const year = new Date().getFullYear()
+          const rand = Math.floor(Math.random() * 9000) + 1000
+          jobNumber = `JC-${rand}-${year}`
+        } else {
+          jobNumber = numData
+        }
       }
 
       const sub = data.items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)

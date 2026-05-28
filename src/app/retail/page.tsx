@@ -1,7 +1,7 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Modal } from '@/components/ui/Modal'
@@ -90,9 +90,8 @@ interface RetailJob {
   }[]
 }
 
-function RetailPageInner() {
+export default function RetailPage() {
   const { profile } = useAuthStore()
-  // @ts-ignore
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -194,7 +193,57 @@ function RetailPageInner() {
 
   async function loadBranches() {
     const { data } = await supabase.from('retail_branches').select('*').order('store').order('name')
-    setBranches((data as RetailBranch[]) || [])
+    const dbBranches = (data as RetailBranch[]) || []
+    if (dbBranches.length > 0) {
+      setBranches(dbBranches)
+    } else {
+      // Hardcoded fallback branches
+      const fallback: RetailBranch[] = [
+        // Shoprite
+        ...[
+          'Ausspannplatz', 'Brakwater', 'Gobabis', 'Grootfontein', 'Katutura',
+          'Keetmanshoop', 'Khomasdal', 'Lüderitz', 'Mariental', 'Okahao',
+          'Okahandja', 'Okakarara', 'Ongwediva', 'Opuwo', 'Oshakati',
+          'Otjiwarongo', 'Outapi', 'Outjo', 'Rehoboth', 'Rundu',
+          'Swakopmund', 'Tsumeb', 'Walvis Bay', 'Windhoek CBD', 'Windhoek North',
+          'Windhoek South', 'Witvlei', 'Nkurenkuru', 'Katima Mulilo', 'Divundu',
+        ].map(name => ({ id: name, store: 'Shoprite', name, is_liquor: false })),
+        // Shoprite Liquor
+        ...[
+          'Ausspannplatz Liquor', 'Khomasdal Liquor', 'Ongwediva Liquor',
+          'Oshakati Liquor', 'Rundu Liquor', 'Swakopmund Liquor',
+          'Walvis Bay Liquor', 'Windhoek CBD Liquor', 'Windhoek North Liquor',
+          'Otjiwarongo Liquor', 'Tsumeb Liquor', 'Okahandja Liquor',
+          'Keetmanshoop Liquor', 'Grootfontein Liquor', 'Rehoboth Liquor',
+          'Mariental Liquor', 'Katima Mulilo Liquor', 'Gobabis Liquor', 'Outapi Liquor',
+        ].map(name => ({ id: name, store: 'Shoprite', name, is_liquor: true })),
+        // Checkers
+        ...[
+          'Grove Mall', 'Maerua Mall', 'Wernhil Park', 'Kleine Kuppe',
+          'Windhoek Central', 'Oshakati', 'Swakopmund', 'Walvis Bay',
+        ].map(name => ({ id: 'c-'+name, store: 'Checkers', name, is_liquor: false })),
+        // Checkers Liquor
+        ...[
+          'Grove Mall Liquor', 'Maerua Mall Liquor', 'Wernhil Park Liquor',
+          'Kleine Kuppe Liquor', 'Windhoek Central Liquor', 'Oshakati Liquor',
+          'Swakopmund Liquor', 'Walvis Bay Liquor',
+        ].map(name => ({ id: 'cl-'+name, store: 'Checkers', name, is_liquor: true })),
+        // Usave
+        ...[
+          'Babylon', 'Cimbebasia', 'Dolam', 'Freedom Square', 'Goreangab',
+          'Hakahana', 'Havana', 'Katutura Central', 'Khomasdal', 'Kuisebmund',
+          'Mondesa', 'Moses Garoeb', 'Okuryangava', 'Rocky Crest', 'Samora Machel',
+          'Shandumbala', 'Soweto', 'Tobias Hainyeko', 'Tutungeni', 'Wanaheda',
+          'Windhoek North', 'Windhoek Rural', 'Otjomuise', 'Okahandja Park', 'Ongwediva',
+          'Walvis Bay',
+        ].map(name => ({ id: 'u-'+name, store: 'Usave', name, is_liquor: false })),
+        // Usave Liquor
+        ...[
+          'Babylon Liquor', 'Katutura Liquor',
+        ].map(name => ({ id: 'ul-'+name, store: 'Usave', name, is_liquor: true })),
+      ]
+      setBranches(fallback as any)
+    }
   }
 
   async function loadClients() {
@@ -210,7 +259,12 @@ function RetailPageInner() {
   async function openCreate() {
     setEditingJob(null)
     setActiveTab('details')
-    const nextNum = await getNextRetailNumber()
+    let nextNum = `450-${new Date().getFullYear()}`
+    try {
+      nextNum = await getNextRetailNumber()
+    } catch {
+      // use fallback
+    }
     reset({
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
@@ -218,7 +272,6 @@ function RetailPageInner() {
       vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
     })
     setIsFormOpen(true)
-    router.push('/retail')
   }
 
   function openEdit(job: RetailJob) {
@@ -388,7 +441,7 @@ function RetailPageInner() {
         title="RETAIL"
         subtitle={`${filtered.length} retail jobs · Shoprite · Checkers · Usave`}
         actions={
-          <button onClick={openCreate} className="btn-primary btn-sm">
+          <button onClick={() => openCreate()} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> New Retail Job
           </button>
         }
@@ -780,13 +833,5 @@ function RetailPageInner() {
         isLoading={isDeleting}
       />
     </AppShell>
-  )
-}
-
-export default function RetailPage() {
-  return (
-    <Suspense fallback={null}>
-      <RetailPageInner />
-    </Suspense>
   )
 }
