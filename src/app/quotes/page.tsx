@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -58,7 +58,7 @@ interface QuoteWithItems extends Quote {
   }[]
 }
 
-export default function QuotesPage() {
+function QuotesPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -601,5 +601,13 @@ export default function QuotesPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+export default function QuotesPage() {
+  return (
+    <Suspense fallback={null}>
+      <QuotesPageInner />
+    </Suspense>
   )
 }

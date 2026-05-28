@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -90,7 +90,7 @@ interface RetailJob {
   }[]
 }
 
-export default function RetailPage() {
+function RetailPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -833,5 +833,13 @@ export default function RetailPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+export default function RetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <RetailPageInner />
+    </Suspense>
   )
 }
