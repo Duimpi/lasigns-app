@@ -17,33 +17,27 @@ export function AppShell({ children }: AppShellProps) {
   const router = useRouter()
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         router.push('/login')
         setLoading(false)
         return
       }
-
-      // Fetch profile
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
         .single()
-
       setProfile(profileData)
       setLoading(false)
     })
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
         setProfile(null)
         router.push('/login')
         return
       }
-
       if (event === 'SIGNED_IN' && session) {
         const { data: profileData } = await supabase
           .from('profiles')
@@ -76,9 +70,12 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </div>
       </main>
-      {/* Floating panels */}
-      <StaffJobsPanel />
-      <MessagingWindow />
+
+      {/* Bottom-right floating panels — side by side in one row */}
+      <div className="fixed bottom-4 right-4 z-40 flex flex-row items-end gap-2">
+        <MessagingWindow />
+        <StaffJobsPanel />
+      </div>
     </div>
   )
 }

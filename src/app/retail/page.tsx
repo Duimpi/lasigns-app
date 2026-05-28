@@ -28,10 +28,10 @@ const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
 
 const lineItemSchema = z.object({
-  description: z.string().min(1, 'Required'),
-  quantity: z.number().min(0.01),
-  unit_price: z.number().min(0),
-  size: z.string().optional(),
+  description: z.string().default(''),
+  quantity: z.coerce.number().default(1),
+  unit_price: z.coerce.number().default(0),
+  size: z.string().optional().default(''),
 })
 
 const retailSchema = z.object({
@@ -50,7 +50,7 @@ const retailSchema = z.object({
   due_date: z.string().optional(),
   sales_rep: z.string().optional(),
   date_completed: z.string().optional(),
-  vat_rate: z.number().min(0).max(100),
+  vat_rate: z.coerce.number().default(15),
   items: z.array(lineItemSchema),
 })
 
@@ -739,7 +739,7 @@ export default function RetailPage() {
                 <div className="flex gap-4 items-center">
                   <label className="label mb-0">VAT Rate (%)</label>
                   <input
-                    {...register('vat_rate', { valueAsNumber: true })}
+                    {...register('vat_rate')}
                     type="number" step="0.01" className="input w-24"
                   />
                 </div>
@@ -779,10 +779,10 @@ export default function RetailPage() {
                         <input {...register(`items.${i}.size`)} className="input" placeholder="Size" />
                       </div>
                       <div className="col-span-2">
-                        <input {...register(`items.${i}.quantity`, { valueAsNumber: true })} type="number" step="any" min="0" className="input" />
+                        <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
                       </div>
                       <div className="col-span-2">
-                        <input {...register(`items.${i}.unit_price`, { valueAsNumber: true })} type="number" step="0.01" min="0" className="input" />
+                        <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
                       </div>
                       <div className="col-span-1 text-right text-sm font-semibold">
                         {formatCurrency(qty * price)}

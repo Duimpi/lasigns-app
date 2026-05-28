@@ -134,7 +134,7 @@ export function StaffJobsPanel() {
 
   return (
     // Position: bottom-right, leaves space for chat bubble
-    <div className="fixed bottom-4 right-4 z-40 w-80" style={{ right: '16px', bottom: '16px' }}>
+    <div className="relative w-80">
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div

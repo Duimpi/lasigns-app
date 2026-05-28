@@ -1,7 +1,7 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Modal } from '@/components/ui/Modal'
@@ -26,10 +26,10 @@ import type { Quote, QuoteStatus, Client } from '@/types'
 const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
 
 const lineItemSchema = z.object({
-  description: z.string().min(1, 'Required'),
-  quantity: z.number().min(0.01),
-  unit_price: z.number().min(0),
-  size: z.string().optional(),
+  description: z.string().default(''),
+  quantity: z.coerce.number().default(1),
+  unit_price: z.coerce.number().default(0),
+  size: z.string().optional().default(''),
 })
 
 const quoteSchema = z.object({
@@ -38,10 +38,10 @@ const quoteSchema = z.object({
   client_email: z.string().email().or(z.literal('').optional()),
   client_address: z.string().optional(),
   status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
-  vat_rate: z.number().min(0).max(100),
+  vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
-  items: z.array(lineItemSchema).min(1, 'Add at least one item'),
+  items: z.array(lineItemSchema),
 })
 
 type QuoteFormData = z.infer<typeof quoteSchema>
@@ -58,9 +58,8 @@ interface QuoteWithItems extends Quote {
   }[]
 }
 
-function QuotesPageInner() {
+export default function QuotesPage() {
   const { profile } = useAuthStore()
-  // @ts-ignore
   const searchParams = useSearchParams()
   const router = useRouter()
   const [quotes, setQuotes] = useState<QuoteWithItems[]>([])
@@ -493,7 +492,7 @@ function QuotesPageInner() {
             <div>
               <label className="label">VAT Rate (%)</label>
               <input
-                {...register('vat_rate', { valueAsNumber: true })}
+                {...register('vat_rate')}
                 type="number" step="0.01" min="0" max="100"
                 className="input"
               />
@@ -540,10 +539,10 @@ function QuotesPageInner() {
                       <input {...register(`items.${i}.size`)} className="input" placeholder="e.g. 1200×600mm" />
                     </div>
                     <div className="col-span-1">
-                      <input {...register(`items.${i}.quantity`, { valueAsNumber: true })} type="number" step="any" min="0" className="input" />
+                      <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
                     </div>
                     <div className="col-span-2">
-                      <input {...register(`items.${i}.unit_price`, { valueAsNumber: true })} type="number" step="0.01" min="0" className="input" />
+                      <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
                     </div>
                     <div className="col-span-1 text-right text-sm font-semibold text-text-primary">
                       {formatCurrency(qty * price)}
@@ -602,13 +601,5 @@ function QuotesPageInner() {
         isLoading={isDeleting}
       />
     </AppShell>
-  )
-}
-
-export default function QuotesPage() {
-  return (
-    <Suspense fallback={null}>
-      <QuotesPageInner />
-    </Suspense>
   )
 }

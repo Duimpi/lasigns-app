@@ -25,25 +25,25 @@ const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const VAT_RATE = 15
 
 const lineItemSchema = z.object({
-  description: z.string().min(1, 'Required'),
-  quantity: z.number().min(0.01),
-  unit_price: z.number().min(0),
-  width: z.string().optional(),
-  height: z.string().optional(),
+  description: z.string().default(''),
+  quantity: z.coerce.number().default(1),
+  unit_price: z.coerce.number().default(0),
+  width: z.string().optional().default(''),
+  height: z.string().optional().default(''),
 })
 
 const jobSchema = z.object({
   title: z.string().min(1, 'Title is required'),
-  description: z.string().optional(),
-  notes: z.string().optional(),
+  description: z.string().optional().default(''),
+  notes: z.string().optional().default(''),
   client_id: z.string().optional(),
-  client_name: z.string().optional(),
+  client_name: z.string().optional().default(''),
   status: z.enum(['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']),
   priority: z.enum(['low', 'normal', 'high', 'urgent']),
-  assigned_worker: z.string().optional(),
-  due_date: z.string().optional(),
+  assigned_worker: z.string().optional().default(''),
+  due_date: z.string().optional().default(''),
   linked_quote_id: z.string().optional(),
-  date_completed: z.string().optional(),
+  date_completed: z.string().optional().default(''),
   items: z.array(lineItemSchema),
 })
 
@@ -612,10 +612,10 @@ function JobCardsPageInner() {
                         <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
                       </div>
                       <div className="col-span-2">
-                        <input {...register(`items.${i}.quantity`, { valueAsNumber: true })} type="number" step="any" min="0" className="input" />
+                        <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
                       </div>
                       <div className="col-span-2">
-                        <input {...register(`items.${i}.unit_price`, { valueAsNumber: true })} type="number" step="0.01" min="0" className="input" />
+                        <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
                       </div>
                       <div className="col-span-1 flex justify-end">
                         {itemFields.length > 1 && (

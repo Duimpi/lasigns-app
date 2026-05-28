@@ -172,7 +172,7 @@ export function MessagingWindow() {
 
   return (
     // IMPORTANT: Same right:16px as Staff Panel, stacks directly above it
-    <div className="fixed z-40" style={{ bottom: '16px', right: '352px', width: '320px' }}>
+    <div className="relative" style={{ width: '320px' }}>
       <AnimatePresence>
         {isOpen && !isMinimized && (
           <motion.div
@@ -180,7 +180,7 @@ export function MessagingWindow() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="bg-bg-surface border border-border rounded-xl shadow-modal overflow-hidden mb-1"
+            className="bg-bg-surface border border-border rounded-xl shadow-modal overflow-hidden absolute bottom-full mb-1 right-0"
             style={{ height: '460px', display: 'flex', flexDirection: 'column' }}
           >
             {/* Header */}
@@ -323,7 +323,7 @@ export function MessagingWindow() {
                 {/* Input */}
                 <div className="px-3 py-2.5 border-t border-border shrink-0 relative">
                   {showEmojiPicker && (
-                    <div className="absolute bottom-full right-0 mb-1 z-50 shadow-modal rounded-xl overflow-hidden">
+                    <div className="absolute bottom-full right-0 mb-1 z-[100] shadow-modal rounded-xl overflow-hidden">
                       <EmojiPicker
                         onEmojiClick={(data) => insertEmoji(data.emoji)}
                         theme={'dark' as any}
