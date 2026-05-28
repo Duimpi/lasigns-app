@@ -131,7 +131,7 @@ export function MessagingWindow() {
       openChat(chat as any)
       setView('chats')
       toast.success(`Chat started with ${targetProfile.full_name}`)
-    } catch { toast.error('Failed to start chat') }
+    } catch (err: any) { toast.error(`Chat error: ${err?.message || JSON.stringify(err)}`) }
   }
 
   async function deleteChat(chatId: string) {
