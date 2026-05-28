@@ -18,32 +18,16 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) {
-        router.push('/login')
-        setLoading(false)
-        return
-      }
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single()
+      if (!session) { router.push('/login'); setLoading(false); return }
+      const { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
       setProfile(profileData)
       setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        setProfile(null)
-        router.push('/login')
-        return
-      }
+      if (event === 'SIGNED_OUT' || !session) { setProfile(null); router.push('/login'); return }
       if (event === 'SIGNED_IN' && session) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
+        const { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
         setProfile(profileData)
       }
     })
@@ -66,12 +50,10 @@ export function AppShell({ children }: AppShellProps) {
     <div className="min-h-screen bg-bg flex">
       <Sidebar />
       <main className="flex-1 ml-56 min-h-screen overflow-x-hidden">
-        <div className="min-h-screen pb-24">
-          {children}
-        </div>
+        <div className="min-h-screen pb-24">{children}</div>
       </main>
 
-      {/* Bottom-right floating panels — side by side in one row */}
+      {/* Bottom-right: chat bubbles + Messages button + Staff Panel — all in one row */}
       <div className="fixed bottom-4 right-4 z-40 flex flex-row items-end gap-2">
         <MessagingWindow />
         <StaffJobsPanel />
