@@ -34,9 +34,16 @@ export function Sidebar() {
   const router = useRouter()
 
   async function handleLogout() {
-    await supabase.auth.signOut()
+    try {
+      await supabase.auth.signOut()
+      // Clear persisted auth from localStorage
+      localStorage.removeItem('la-signs-auth')
+      toast.success('Signed out')
+    } catch {
+      // Force clear anyway
+      localStorage.removeItem('la-signs-auth')
+    }
     router.push('/login')
-    toast.success('Signed out')
   }
 
   return (
@@ -48,7 +55,7 @@ export function Sidebar() {
           alt="LA Signs & Graphics"
           width={160}
           height={60}
-          className="object-contain max-h-14 mix-blend-screen"
+          className="object-contain max-h-14"
           priority
         />
       </div>
