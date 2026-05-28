@@ -11,7 +11,7 @@ import { formatDate, formatCurrency } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 import {
   FileText, Briefcase, Users, ShoppingBag,
-  TrendingUp, Clock, AlertCircle, CheckCircle2
+  TrendingUp, AlertCircle, CheckCircle2, Clock
 } from 'lucide-react'
 import Link from 'next/link'
 import type { JobCard, Quote } from '@/types'
@@ -25,6 +25,17 @@ interface Stats {
   retailJobs: number
 }
 
+interface WorkerJob extends JobCard {
+  is_retail: boolean
+}
+
+const WORKERS = ['Nicole', 'Geraldo', 'Bets-Mari']
+const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+const STATUS_ORDER: Record<string, number> = { 
+  pending: 0, designing: 1, printing: 2, installation: 3, 
+  completed: 4, delivered: 5 
+}
+
 export default function DashboardPage() {
   const { profile } = useAuthStore()
   const router = useRouter()
@@ -32,13 +43,11 @@ export default function DashboardPage() {
     totalClients: 0, activeQuotes: 0, activeJobs: 0,
     urgentJobs: 0, completedThisMonth: 0, retailJobs: 0,
   })
-  const [recentJobs, setRecentJobs] = useState<JobCard[]>([])
+  const [allActiveJobs, setAllActiveJobs] = useState<WorkerJob[]>([])
   const [recentQuotes, setRecentQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    loadDashboard()
-  }, [])
+  useEffect(() => { loadDashboard() }, [])
 
   async function loadDashboard() {
     setIsLoading(true)
@@ -50,7 +59,7 @@ export default function DashboardPage() {
         { count: urgentCount },
         { count: completedCount },
         { count: retailCount },
-        { data: jobs },
+        { data: activeJobs },
         { data: quotes },
       ] = await Promise.all([
         supabase.from('clients').select('*', { count: 'exact', head: true }),
@@ -70,9 +79,8 @@ export default function DashboardPage() {
           .in('status', ['pending', 'designing', 'printing', 'installation']),
         supabase.from('job_cards')
           .select('*')
-          .eq('is_retail', false)
-          .order('created_at', { ascending: false })
-          .limit(6),
+          .not('status', 'in', '(completed,delivered)')
+          .order('created_at', { ascending: false }),
         supabase.from('quotes')
           .select('*')
           .eq('is_retail', false)
@@ -88,7 +96,7 @@ export default function DashboardPage() {
         completedThisMonth: completedCount || 0,
         retailJobs: retailCount || 0,
       })
-      setRecentJobs((jobs as JobCard[]) || [])
+      setAllActiveJobs((activeJobs as WorkerJob[]) || [])
       setRecentQuotes((quotes as Quote[]) || [])
     } finally {
       setIsLoading(false)
@@ -99,10 +107,27 @@ export default function DashboardPage() {
     { label: 'Total Clients', value: stats.totalClients, icon: Users, color: 'text-blue-400', href: '/clients' },
     { label: 'Active Quotes', value: stats.activeQuotes, icon: FileText, color: 'text-purple-400', href: '/quotes' },
     { label: 'Active Jobs', value: stats.activeJobs, icon: Briefcase, color: 'text-accent', href: '/job-cards' },
-    { label: 'Urgent Jobs', value: stats.urgentJobs, icon: AlertCircle, color: 'text-red-400', href: '/job-cards?priority=urgent' },
-    { label: 'Completed (Month)', value: stats.completedThisMonth, icon: CheckCircle2, color: 'text-emerald-400', href: '/job-cards?status=completed' },
+    { label: 'Urgent Jobs', value: stats.urgentJobs, icon: AlertCircle, color: 'text-red-400', href: '/job-cards' },
+    { label: 'Done This Month', value: stats.completedThisMonth, icon: CheckCircle2, color: 'text-emerald-400', href: '/job-cards' },
     { label: 'Active Retail', value: stats.retailJobs, icon: ShoppingBag, color: 'text-amber-400', href: '/retail' },
   ]
+
+  // Sort jobs: urgent first, then by priority, then by due date
+  function sortJobs(jobs: WorkerJob[]) {
+    return [...jobs].sort((a, b) => {
+      const pa = PRIORITY_ORDER[a.priority] ?? 2
+      const pb = PRIORITY_ORDER[b.priority] ?? 2
+      if (pa !== pb) return pa - pb
+      // Overdue first
+      const aOverdue = a.due_date && new Date(a.due_date) < new Date() ? 0 : 1
+      const bOverdue = b.due_date && new Date(b.due_date) < new Date() ? 0 : 1
+      if (aOverdue !== bOverdue) return aOverdue - bOverdue
+      return STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+    })
+  }
+
+  // Unassigned jobs
+  const unassignedJobs = sortJobs(allActiveJobs.filter(j => !j.assigned_worker))
 
   return (
     <AppShell>
@@ -136,103 +161,156 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* Recent content */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* Recent Jobs */}
-          <div className="card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h2 className="font-semibold text-text-primary flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-accent" />
-                Recent Job Cards
-              </h2>
-              <Link href="/job-cards" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
-            </div>
-            <div className="divide-y divide-border/50">
-              {isLoading ? (
-                <div className="py-8 text-center text-text-muted text-sm">Loading...</div>
-              ) : recentJobs.length === 0 ? (
-                <div className="py-8 text-center text-text-muted text-sm">No job cards yet</div>
-              ) : (
-                recentJobs.map(job => (
+        {/* DAILY WORK — All staff */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-text-primary flex items-center gap-2">
+              <Clock className="w-4 h-4 text-accent" />
+              Daily Work — All Staff
+            </h2>
+            <Link href="/job-cards" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            {WORKERS.map(worker => {
+              const workerJobs = sortJobs(allActiveJobs.filter(j => j.assigned_worker === worker))
+              return (
+                <div key={worker} className="card overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
+                        <span className="text-xs font-bold text-accent">{worker[0]}</span>
+                      </div>
+                      <span className="font-semibold text-sm text-text-primary">{worker}</span>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      workerJobs.length === 0 ? 'bg-bg-elevated text-text-muted' :
+                      workerJobs.some(j => j.priority === 'urgent') ? 'bg-red-500/20 text-red-400' :
+                      'bg-accent/20 text-accent'
+                    }`}>
+                      {workerJobs.length} job{workerJobs.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-border/40">
+                    {isLoading ? (
+                      <div className="py-6 text-center text-xs text-text-muted">Loading...</div>
+                    ) : workerJobs.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-text-muted">No active jobs</div>
+                    ) : (
+                      workerJobs.map(job => {
+                        const isOverdue = job.due_date && new Date(job.due_date) < new Date() && !['completed','delivered'].includes(job.status)
+                        const isUrgent = job.priority === 'urgent'
+                        return (
+                          <div
+                            key={job.id}
+                            onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
+                            className={`px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors ${isUrgent ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-text-primary truncate">{job.title}</p>
+                                <p className="text-[11px] text-text-muted mt-0.5">
+                                  {job.job_number}
+                                  {job.client_name ? ` · ${job.client_name}` : ''}
+                                  {job.is_retail ? ' · Retail' : ''}
+                                </p>
+                                {job.due_date && (
+                                  <p className={`text-[11px] mt-0.5 flex items-center gap-1 ${isOverdue ? 'text-red-400 font-semibold' : 'text-text-muted'}`}>
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {isOverdue ? 'OVERDUE · ' : 'Due '}{formatDate(job.due_date)}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <StatusBadge status={job.status} />
+                                {isUrgent && <span className="text-[10px] font-bold text-red-400 uppercase">Urgent</span>}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Unassigned jobs */}
+          {unassignedJobs.length > 0 && (
+            <div className="card overflow-hidden mt-4">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-amber-500/5">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400" />
+                  <span className="font-semibold text-sm text-amber-400">Unassigned Jobs</span>
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                  {unassignedJobs.length}
+                </span>
+              </div>
+              <div className="divide-y divide-border/40">
+                {unassignedJobs.map(job => (
                   <div
                     key={job.id}
-                    onClick={() => router.push(`/job-cards?open=${job.id}`)}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors"
+                    onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
+                    className="flex items-center justify-between px-4 py-3 hover:bg-bg-hover cursor-pointer"
                   >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-text-primary truncate">{job.title}</p>
-                      <p className="text-xs text-text-muted">
-                        {job.job_number} · {job.client_name || 'No client'} · {formatDate(job.created_at)}
-                      </p>
+                    <div>
+                      <p className="text-sm font-medium text-text-primary">{job.title}</p>
+                      <p className="text-xs text-text-muted">{job.job_number} · {job.client_name || 'No client'}</p>
                     </div>
-                    <div className="flex items-center gap-2 ml-3 shrink-0">
-                      {job.assigned_worker && (
-                        <span className="text-xs text-text-muted">{job.assigned_worker}</span>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={job.priority} type="priority" />
                       <StatusBadge status={job.status} />
                     </div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+        </div>
 
-          {/* Recent Quotes */}
-          <div className="card overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h2 className="font-semibold text-text-primary flex items-center gap-2">
-                <FileText className="w-4 h-4 text-purple-400" />
-                Recent Quotes
-              </h2>
-              <Link href="/quotes" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
-            </div>
-            <div className="divide-y divide-border/50">
-              {isLoading ? (
-                <div className="py-8 text-center text-text-muted text-sm">Loading...</div>
-              ) : recentQuotes.length === 0 ? (
-                <div className="py-8 text-center text-text-muted text-sm">No quotes yet</div>
-              ) : (
-                recentQuotes.map(quote => (
-                  <div
-                    key={quote.id}
-                    onClick={() => router.push(`/quotes?open=${quote.id}`)}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-text-primary truncate">
-                        {quote.client_name || 'Unknown client'}
-                      </p>
-                      <p className="text-xs text-text-muted">
-                        {quote.quote_number} · {formatDate(quote.created_at)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 ml-3 shrink-0">
-                      <span className="text-sm font-semibold text-text-primary">
-                        {formatCurrency(quote.total)}
-                      </span>
-                      <StatusBadge status={quote.status} />
-                    </div>
+        {/* Recent Quotes */}
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <h2 className="font-semibold text-text-primary flex items-center gap-2">
+              <FileText className="w-4 h-4 text-purple-400" />
+              Recent Quotes
+            </h2>
+            <Link href="/quotes" className="text-xs text-accent hover:text-accent-glow">View all →</Link>
+          </div>
+          <div className="divide-y divide-border/50">
+            {isLoading ? (
+              <div className="py-8 text-center text-text-muted text-sm">Loading...</div>
+            ) : recentQuotes.length === 0 ? (
+              <div className="py-8 text-center text-text-muted text-sm">No quotes yet</div>
+            ) : (
+              recentQuotes.map(quote => (
+                <div
+                  key={quote.id}
+                  onClick={() => router.push(`/quotes?open=${quote.id}`)}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">{quote.client_name || 'Unknown client'}</p>
+                    <p className="text-xs text-text-muted">{quote.quote_number} · {formatDate(quote.created_at)}</p>
                   </div>
-                ))
-              )}
-            </div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    <span className="text-sm font-semibold text-text-primary">{formatCurrency(quote.total)}</span>
+                    <StatusBadge status={quote.status} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
         {/* Quick actions */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Link href="/quotes?new=1" className="btn-primary btn-sm">
-            + New Quote
-          </Link>
-          <Link href="/job-cards?new=1" className="btn-secondary btn-sm">
-            + New Job Card
-          </Link>
-          <Link href="/clients?new=1" className="btn-secondary btn-sm">
-            + Add Client
-          </Link>
-          <Link href="/retail?new=1" className="btn-secondary btn-sm">
-            + New Retail Job
-          </Link>
+          <Link href="/quotes?new=1" className="btn-primary btn-sm">+ New Quote</Link>
+          <Link href="/job-cards?new=1" className="btn-secondary btn-sm">+ New Job Card</Link>
+          <Link href="/clients?new=1" className="btn-secondary btn-sm">+ Add Client</Link>
+          <Link href="/retail?new=1" className="btn-secondary btn-sm">+ New Retail Job</Link>
         </div>
       </div>
     </AppShell>
