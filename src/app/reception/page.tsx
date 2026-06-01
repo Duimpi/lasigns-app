@@ -74,12 +74,14 @@ function ReceptionPageInner() {
         ...((paidJ || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
       // Load walk-ins
-      const { data: walkinData } = await supabase
-        .from('walkin_payments')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50)
-      setWalkins(walkinData || [])
+      try {
+        const { data: walkinData } = await supabase
+          .from('walkin_payments')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50)
+        setWalkins(walkinData || [])
+      } catch { setWalkins([]) }
     } finally { setIsLoading(false) }
   }
 
@@ -120,13 +122,13 @@ function ReceptionPageInner() {
     setIsSavingWalkin(true)
     try {
       const total = parseFloat(walkinAmount)
-      const { error } = await supabase.from('walkin_payments').insert({
-        client_name: walkinName.trim(),
-        phone: walkinPhone || null,
-        amount: total,
-        payment_method: walkinMethod,
-        note: walkinNote || null,
-        created_by: profile?.id,
+      const { error } = await supabase.rpc('save_walkin', {
+        p_client_name: walkinName.trim(),
+        p_phone: walkinPhone || null,
+        p_amount: total,
+        p_method: walkinMethod,
+        p_note: walkinNote || null,
+        p_user_id: profile?.id,
       })
       if (error) throw error
 
