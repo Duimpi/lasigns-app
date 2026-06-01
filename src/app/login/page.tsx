@@ -74,16 +74,15 @@ export default function LoginPage() {
         <div className="bg-bg-surface border border-border rounded-xl shadow-modal p-8">
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="bg-black rounded-xl p-3">
-              <Image
-                src="/logo.png"
-                alt="LA Signs"
-                width={120}
-                height={60}
-                className="object-contain mix-blend-screen"
-                onError={() => {}}
-              />
-            </div>
+            <Image
+              src="/logo.png"
+              alt="LA Signs"
+              width={140}
+              height={70}
+              className="object-contain"
+              style={{ mixBlendMode: 'screen', filter: 'brightness(1)' }}
+              onError={() => {}}
+            />
           </div>
 
           <h1 className="text-xl font-semibold text-text-primary mb-1 text-center">Welcome Back</h1>

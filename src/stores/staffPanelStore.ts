@@ -12,7 +12,7 @@ interface StaffPanelState {
 }
 
 export const useStaffPanelStore = create<StaffPanelState>((set, get) => ({
-  isOpen: true,
+  isOpen: false,
   activeTab: 'jobs',
   jobsByWorker: {},
   setIsOpen: (isOpen) => set({ isOpen }),

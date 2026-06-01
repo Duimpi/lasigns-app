@@ -49,7 +49,7 @@ export function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-56 bg-bg-surface border-r border-border flex flex-col z-30">
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-border flex items-center justify-center">
+      <div className="px-4 py-4 border-b border-border flex items-center justify-center bg-black/80">
         <Image
           src="/logo.png"
           alt="LA Signs & Graphics"
