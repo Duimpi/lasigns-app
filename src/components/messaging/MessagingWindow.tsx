@@ -138,12 +138,13 @@ function ChatBubble({ chat, onClose }: { chat: any; onClose: () => void }) {
             {/* Input */}
             <div className="px-2 py-2 border-t border-border shrink-0 relative">
               {showEmoji && (
-                <div className="absolute bottom-full right-0 mb-1 z-[100] shadow-modal rounded-xl overflow-hidden">
+                <div className="absolute bottom-full right-0 mb-1 z-[100] shadow-modal rounded-xl overflow-hidden" style={{ maxHeight: '300px', overflow: 'hidden' }}>
                   <EmojiPicker
                     onEmojiClick={(d) => insertEmoji(d.emoji)}
-                    theme={'dark' as any} height={280} width={260}
-                    searchDisabled skinTonesDisabled
+                    theme={'dark' as any} height={280} width={250}
+                    searchDisabled={true} skinTonesDisabled={true}
                     previewConfig={{ showPreview: false }}
+                    lazyLoadEmojis={true}
                   />
                 </div>
               )}

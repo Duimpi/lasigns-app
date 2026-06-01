@@ -21,7 +21,7 @@ const navItems = [
   { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/job-cards', icon: Briefcase, label: 'Job Cards' },
   { href: '/retail', icon: ShoppingBag, label: 'Retail' },
-  { href: '/messages', icon: MessageSquare, label: 'Messages' },
+  { href: '/messaging', icon: MessageSquare, label: 'Messages' },
   { href: '/reception', icon: CreditCard, label: 'Reception' },
 ]
 
