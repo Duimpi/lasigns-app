@@ -14,8 +14,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
+    // Timeout fallback - if auth takes too long, redirect to login
+    const timeout = setTimeout(() => {
+      setAuthChecked(true)
+      setLoading(false)
+    }, 5000)
+
     // Check session on mount
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      clearTimeout(timeout)
       if (!session) {
         setProfile(null)
         setLoading(false)
@@ -23,11 +30,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         router.push('/login')
         return
       }
-      const { data: profileData } = await supabase
-        .from('profiles').select('*').eq('id', session.user.id).single()
-      setProfile(profileData)
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles').select('*').eq('id', session.user.id).single()
+        setProfile(profileData)
+      } catch {
+        // Profile load failed but session exists - use basic profile
+        setProfile({ id: session.user.id, email: session.user.email, full_name: session.user.email?.split('@')[0] || 'User', role: 'staff' } as any)
+      }
       setLoading(false)
       setAuthChecked(true)
+    }).catch(() => {
+      clearTimeout(timeout)
+      setProfile(null)
+      setLoading(false)
+      setAuthChecked(true)
+      router.push('/login')
     })
 
     // Listen for auth changes

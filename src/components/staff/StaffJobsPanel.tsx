@@ -68,14 +68,18 @@ export function StaffJobsPanel() {
   }, [])
 
   async function loadJobs() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('job_cards')
       .select('*')
-      .eq('is_retail', false)
       .not('status', 'in', '(completed,delivered)')
-      .order('priority', { ascending: false })
       .order('created_at', { ascending: true })
 
+    if (error) {
+      console.error('Staff panel loadJobs error:', error)
+      return
+    }
+
+    const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
     const grouped: Record<string, JobCard[]> = {}
     WORKERS.forEach(w => { grouped[w] = [] })
 
@@ -84,6 +88,11 @@ export function StaffJobsPanel() {
         grouped[job.assigned_worker].push(job)
       }
     }
+
+    // Sort each worker's jobs by priority
+    WORKERS.forEach(w => {
+      grouped[w].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2))
+    })
 
     setJobsByWorker(grouped)
   }
