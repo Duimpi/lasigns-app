@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { StaffJobsPanel } from '@/components/staff/StaffJobsPanel'
@@ -11,67 +11,61 @@ import { supabase } from '@/lib/supabase/client'
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, setProfile, setLoading } = useAuthStore()
   const router = useRouter()
-  const [authChecked, setAuthChecked] = useState(false)
+  const initialized = useRef(false)
 
   useEffect(() => {
-    // Timeout fallback - if auth takes too long, redirect to login
-    const timeout = setTimeout(() => {
-      setAuthChecked(true)
-      setLoading(false)
-    }, 5000)
+    if (initialized.current) return
+    initialized.current = true
 
-    // Check session on mount
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      clearTimeout(timeout)
       if (!session) {
         setProfile(null)
         setLoading(false)
-        setAuthChecked(true)
-        router.push('/login')
+        router.replace('/login')
         return
       }
+
+      // If profile already in store and matches session, don't reload
+      const current = useAuthStore.getState().profile
+      if (current?.id === session.user.id) {
+        setLoading(false)
+        return
+      }
+
       try {
-        const { data: profileData } = await supabase
+        const { data } = await supabase
           .from('profiles').select('*').eq('id', session.user.id).single()
-        setProfile(profileData)
+        setProfile(data || {
+          id: session.user.id,
+          email: session.user.email || '',
+          full_name: session.user.email?.split('@')[0] || 'User',
+          role: 'staff', created_at: '', updated_at: '',
+        })
       } catch {
-        // Profile load failed but session exists - use basic profile
-        setProfile({ id: session.user.id, email: session.user.email, full_name: session.user.email?.split('@')[0] || 'User', role: 'staff' } as any)
+        if (!current) router.replace('/login')
       }
       setLoading(false)
-      setAuthChecked(true)
     }).catch(() => {
-      clearTimeout(timeout)
-      setProfile(null)
+      const current = useAuthStore.getState().profile
+      if (!current) router.replace('/login')
       setLoading(false)
-      setAuthChecked(true)
-      router.push('/login')
     })
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
         setProfile(null)
-        setLoading(false)
-        router.push('/login')
-        return
-      }
-      if (event === 'SIGNED_IN' && session) {
-        const { data: profileData } = await supabase
-          .from('profiles').select('*').eq('id', session.user.id).single()
-        setProfile(profileData)
-        setLoading(false)
+        router.replace('/login')
       }
     })
 
     return () => subscription.unsubscribe()
   }, [])
 
-  // Show loading only before auth check completes
-  if (!authChecked || !profile) {
+  // Always render if we have a profile (cached or fresh)
+  if (!profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-3">
           <div className="spinner w-8 h-8" />
           <p className="text-text-muted text-sm">Loading...</p>
         </div>

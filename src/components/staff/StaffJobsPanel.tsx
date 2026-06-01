@@ -7,64 +7,48 @@ import { useStaffPanelStore } from '@/stores/staffPanelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import {
-  ChevronDown, ChevronUp, Users, Clock, AlertTriangle,
-  MessageSquare, Plus
-} from 'lucide-react'
+import { Users, Clock, AlertTriangle, ChevronDown, ChevronUp, Plus, Link } from 'lucide-react'
 import type { JobCard, Worker } from '@/types'
-import toast from 'react-hot-toast'
 
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 
 const WORKER_COLORS: Record<Worker, string> = {
-  Nicole: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
-  Geraldo: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  'Bets-Mari': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  'Nicole': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  'Geraldo': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  'Bets-Mari': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
 }
+
+const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
 
 interface DailyUpdate {
   id: string
   worker: Worker
+  job_card_id?: string
   message: string
   created_at: string
-  job_card?: { title: string; job_number: string } | null
-  profile?: { full_name: string } | null
+  profile?: { full_name: string }
+  job_card?: { job_number: string; title: string }
 }
 
 export function StaffJobsPanel() {
-  const { isOpen, activeTab, jobsByWorker, setIsOpen, setActiveTab, setJobsByWorker, toggle } = useStaffPanelStore()
+  const { isOpen, activeTab, jobsByWorker, setIsOpen, setActiveTab, setJobsByWorker } = useStaffPanelStore()
   const { profile } = useAuthStore()
+
   const [updates, setUpdates] = useState<DailyUpdate[]>([])
-  const [newUpdateWorker, setNewUpdateWorker] = useState<Worker>('Nicole')
   const [newUpdateMsg, setNewUpdateMsg] = useState('')
-  const [selectedJob, setSelectedJob] = useState('')
-  const [availableJobs, setAvailableJobs] = useState<JobCard[]>([])
   const [isSendingUpdate, setIsSendingUpdate] = useState(false)
+  const [allJobs, setAllJobs] = useState<(JobCard & { assigned_worker?: string })[]>([])
 
   useEffect(() => {
     loadJobs()
     loadUpdates()
-    loadAvailableJobs()
 
-    // Realtime for job cards
-    const jobChannel = supabase
-      .channel('staff-panel-jobs')
+    const channel = supabase.channel('staff-panel-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'job_cards' }, loadJobs)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_updates' }, loadUpdates)
       .subscribe()
 
-    // Realtime for daily updates
-    const updateChannel = supabase
-      .channel('staff-panel-updates')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'daily_updates' }, () => {
-        loadUpdates()
-        toast('New daily update posted', { icon: '📋' })
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(jobChannel)
-      supabase.removeChannel(updateChannel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function loadJobs() {
@@ -74,26 +58,48 @@ export function StaffJobsPanel() {
       .not('status', 'in', '(completed,delivered)')
       .order('created_at', { ascending: true })
 
-    if (error) {
-      console.error('Staff panel loadJobs error:', error)
-      return
+    if (error) return
+
+    const now = new Date()
+    const jobs = (data as (JobCard & { assigned_worker?: string })[]) || []
+
+    // Auto-escalate to urgent if overdue by 3+ days
+    const toEscalate = jobs.filter(j => {
+      if (!j.due_date || j.priority === 'urgent') return false
+      const due = new Date(j.due_date)
+      const daysOverdue = (now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)
+      return daysOverdue >= 3
+    })
+
+    if (toEscalate.length > 0) {
+      await supabase.from('job_cards')
+        .update({ priority: 'urgent' })
+        .in('id', toEscalate.map(j => j.id))
+      // Update locally
+      toEscalate.forEach(j => { j.priority = 'urgent' })
     }
 
-    const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+    // Sort: urgent first, then overdue, then priority, then status
+    const sorted = jobs.sort((a, b) => {
+      const pa = PRIORITY_ORDER[a.priority] ?? 2
+      const pb = PRIORITY_ORDER[b.priority] ?? 2
+      if (pa !== pb) return pa - pb
+      const aOver = a.due_date && new Date(a.due_date) < now ? 0 : 1
+      const bOver = b.due_date && new Date(b.due_date) < now ? 0 : 1
+      if (aOver !== bOver) return aOver - bOver
+      return 0
+    })
+
+    setAllJobs(sorted)
+
+    // Also build grouped by worker for staff jobs tab
     const grouped: Record<string, JobCard[]> = {}
     WORKERS.forEach(w => { grouped[w] = [] })
-
-    for (const job of (data as JobCard[]) || []) {
+    for (const job of sorted) {
       if (job.assigned_worker && grouped[job.assigned_worker]) {
         grouped[job.assigned_worker].push(job)
       }
     }
-
-    // Sort each worker's jobs by priority
-    WORKERS.forEach(w => {
-      grouped[w].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2))
-    })
-
     setJobsByWorker(grouped)
   }
 
@@ -101,48 +107,38 @@ export function StaffJobsPanel() {
     const { data } = await supabase
       .from('daily_updates')
       .select(`
-        *,
-        job_card:job_cards(title, job_number),
-        profile:profiles!created_by(full_name)
+        id, worker, job_card_id, message, created_at,
+        profile:profiles!created_by(full_name),
+        job_card:job_cards!job_card_id(job_number, title)
       `)
       .order('created_at', { ascending: false })
       .limit(20)
     setUpdates((data as DailyUpdate[]) || [])
   }
 
-  async function loadAvailableJobs() {
-    const { data } = await supabase
-      .from('job_cards')
-      .select('id, title, job_number')
-      .eq('is_retail', false)
-      .not('status', 'in', '(completed,delivered)')
-      .order('created_at', { ascending: false })
-    setAvailableJobs((data as JobCard[]) || [])
-  }
-
   async function postUpdate() {
     if (!newUpdateMsg.trim() || !profile) return
     setIsSendingUpdate(true)
     try {
+      const worker = (WORKERS.includes(profile.full_name as Worker)
+        ? profile.full_name
+        : WORKERS[0]) as Worker
+
       await supabase.from('daily_updates').insert({
-        worker: newUpdateWorker,
-        job_card_id: selectedJob || null,
+        worker,
         message: newUpdateMsg.trim(),
         created_by: profile.id,
       })
       setNewUpdateMsg('')
-      setSelectedJob('')
-      toast.success('Update posted')
       loadUpdates()
-    } catch { toast.error('Failed to post update') }
-    finally { setIsSendingUpdate(false) }
+    } finally { setIsSendingUpdate(false) }
   }
 
-  const totalJobs = Object.values(jobsByWorker).reduce((sum, jobs) => sum + jobs.length, 0)
-  const urgentCount = Object.values(jobsByWorker).flat().filter(j => j.priority === 'urgent').length
+  const totalJobs = allJobs.length
+  const urgentCount = allJobs.filter(j => j.priority === 'urgent').length
+  const unassigned = allJobs.filter(j => !j.assigned_worker)
 
   return (
-    // Position: bottom-right, leaves space for chat bubble
     <div className="relative w-80">
       <AnimatePresence initial={false}>
         {isOpen && (
@@ -150,38 +146,30 @@ export function StaffJobsPanel() {
             initial={{ opacity: 0, y: 20, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.97 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.15 }}
             className="bg-bg-surface border border-border rounded-xl shadow-modal overflow-hidden mb-1"
-            style={{ maxHeight: '480px' }}
+            style={{ maxHeight: '520px' }}
           >
-            {/* Panel Tabs */}
+            {/* Tabs */}
             <div className="flex border-b border-border">
-              <button
-                onClick={() => setActiveTab('jobs')}
+              <button onClick={() => setActiveTab('jobs')}
                 className={`flex-1 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors flex items-center justify-center gap-1.5 ${
                   activeTab === 'jobs' ? 'text-accent border-b-2 border-accent bg-accent-muted/50' : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                Staff Jobs
-                {totalJobs > 0 && (
-                  <span className="unread-dot">{totalJobs}</span>
-                )}
+                }`}>
+                <Users className="w-3.5 h-3.5" /> Staff Jobs
+                {totalJobs > 0 && <span className="unread-dot">{totalJobs}</span>}
               </button>
-              <button
-                onClick={() => setActiveTab('updates')}
+              <button onClick={() => setActiveTab('updates')}
                 className={`flex-1 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors flex items-center justify-center gap-1.5 ${
                   activeTab === 'updates' ? 'text-accent border-b-2 border-accent bg-accent-muted/50' : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                <Clock className="w-3.5 h-3.5" />
-                Daily Update
+                }`}>
+                <Clock className="w-3.5 h-3.5" /> Daily Update
               </button>
             </div>
 
-            {/* JOBS TAB */}
+            {/* STAFF JOBS TAB */}
             {activeTab === 'jobs' && (
-              <div className="overflow-y-auto" style={{ maxHeight: '400px' }}>
+              <div className="overflow-y-auto" style={{ maxHeight: '460px' }}>
                 {urgentCount > 0 && (
                   <div className="px-3 py-2 bg-red-900/20 border-b border-red-800/30 flex items-center gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
@@ -192,68 +180,88 @@ export function StaffJobsPanel() {
                   const workerJobs = jobsByWorker[worker] || []
                   return (
                     <div key={worker} className="border-b border-border/50 last:border-0">
-                      <div className={`flex items-center justify-between px-3 py-2 border-b border-border/30`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${WORKER_COLORS[worker]}`}>
-                            {worker}
-                          </span>
-                        </div>
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${WORKER_COLORS[worker]}`}>
+                          {worker}
+                        </span>
                         <span className="text-xs text-text-muted">{workerJobs.length} job{workerJobs.length !== 1 ? 's' : ''}</span>
                       </div>
                       {workerJobs.length === 0 ? (
                         <div className="px-4 py-2.5 text-xs text-text-muted italic">No active jobs</div>
-                      ) : (
-                        workerJobs.map(job => (
-                          <div
-                            key={job.id}
-                            className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer flex items-center justify-between gap-2 group"
-                          >
+                      ) : workerJobs.map(job => {
+                        const isOverdue = job.due_date && new Date(job.due_date) < new Date()
+                        return (
+                          <div key={job.id} className={`px-3 py-2.5 hover:bg-bg-hover cursor-pointer flex items-center justify-between gap-2 ${job.priority === 'urgent' ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                {job.priority === 'urgent' && (
-                                  <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
-                                )}
+                                {job.priority === 'urgent' && <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />}
                                 <p className="text-xs font-medium text-text-primary truncate">{job.title}</p>
                               </div>
                               <p className="text-[10px] text-text-muted mt-0.5">
-                                {job.job_number}
-                                {job.due_date ? ` · Due ${formatDate(job.due_date)}` : ''}
+                                {job.job_number}{job.due_date ? ` · Due ${formatDate(job.due_date)}` : ''}
+                                {isOverdue ? ' · OVERDUE' : ''}
                               </p>
                             </div>
                             <StatusBadge status={job.status} className="text-[9px] shrink-0" />
                           </div>
-                        ))
-                      )}
+                        )
+                      })}
                     </div>
                   )
                 })}
+                {unassigned.length > 0 && (
+                  <div className="border-t border-border/50">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
+                      <span className="text-xs font-semibold text-amber-400">Unassigned</span>
+                      <span className="text-xs text-text-muted">{unassigned.length}</span>
+                    </div>
+                    {unassigned.map(job => (
+                      <div key={job.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-text-primary truncate">{job.title}</p>
+                        <StatusBadge status={job.status} className="text-[9px] shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* DAILY UPDATES TAB */}
+            {/* DAILY UPDATES TAB - all jobs sorted, no dropdowns */}
             {activeTab === 'updates' && (
-              <div className="flex flex-col" style={{ maxHeight: '400px' }}>
-                {/* Post update form */}
-                <div className="p-3 border-b border-border bg-bg-elevated/50 space-y-2">
-                  <div className="flex gap-2">
-                    <select
-                      value={newUpdateWorker}
-                      onChange={(e) => setNewUpdateWorker(e.target.value as Worker)}
-                      className="input text-xs py-1.5 flex-1"
-                    >
-                      {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
-                    </select>
-                    <select
-                      value={selectedJob}
-                      onChange={(e) => setSelectedJob(e.target.value)}
-                      className="input text-xs py-1.5 flex-1"
-                    >
-                      <option value="">No job</option>
-                      {availableJobs.map(j => (
-                        <option key={j.id} value={j.id}>{j.job_number}</option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="flex flex-col" style={{ maxHeight: '460px' }}>
+                {/* All active jobs sorted by priority */}
+                <div className="overflow-y-auto flex-1">
+                  {allJobs.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-text-muted">No active jobs</div>
+                  ) : allJobs.map(job => {
+                    const isOverdue = job.due_date && new Date(job.due_date) < new Date()
+                    const isUrgent = job.priority === 'urgent'
+                    return (
+                      <div key={job.id} className={`px-3 py-3 border-b border-border/40 hover:bg-bg-hover ${isUrgent ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              {isUrgent && <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />}
+                              <p className="text-xs font-semibold text-text-primary truncate">{job.title}</p>
+                            </div>
+                            <p className="text-[10px] text-text-muted">
+                              {job.job_number}
+                              {(job as any).assigned_worker ? ` · ${(job as any).assigned_worker}` : ' · Unassigned'}
+                              {isOverdue ? <span className="text-red-400 font-semibold"> · OVERDUE</span> : job.due_date ? ` · Due ${formatDate(job.due_date)}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <StatusBadge status={job.status} className="text-[9px]" />
+                            {isUrgent && <span className="text-[9px] text-red-400 font-bold uppercase">Urgent</span>}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Post update */}
+                <div className="p-3 border-t border-border bg-bg-elevated/50">
                   <div className="flex gap-2">
                     <input
                       value={newUpdateMsg}
@@ -262,39 +270,19 @@ export function StaffJobsPanel() {
                       className="input text-xs py-1.5 flex-1"
                       placeholder="Post a daily update..."
                     />
-                    <button
-                      onClick={postUpdate}
-                      disabled={isSendingUpdate || !newUpdateMsg.trim()}
-                      className="btn-primary px-3 py-1.5 text-xs"
-                    >
+                    <button onClick={postUpdate} disabled={isSendingUpdate || !newUpdateMsg.trim()}
+                      className="btn-primary px-3 py-1.5 text-xs">
                       {isSendingUpdate ? <span className="spinner w-3 h-3" /> : <Plus className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-                </div>
-
-                {/* Updates list */}
-                <div className="overflow-y-auto flex-1">
-                  {updates.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-text-muted">No updates yet</div>
-                  ) : (
-                    updates.map(update => (
-                      <div key={update.id} className="px-3 py-2.5 border-b border-border/50 last:border-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${WORKER_COLORS[update.worker] || 'text-text-secondary'}`}>
-                            {update.worker}
-                          </span>
-                          {update.job_card && (
-                            <span className="text-[10px] text-accent font-mono">{update.job_card.job_number}</span>
-                          )}
-                          <span className="text-[10px] text-text-muted ml-auto">{formatDate(update.created_at)}</span>
-                        </div>
-                        <p className="text-xs text-text-secondary">{update.message}</p>
-                        {update.profile && (
-                          <p className="text-[10px] text-text-muted mt-0.5">— {update.profile.full_name}</p>
-                        )}
-                      </div>
-                    ))
-                  )}
+                  {/* Recent updates */}
+                  {updates.slice(0, 3).map(u => (
+                    <div key={u.id} className="mt-2 text-[10px] text-text-muted border-t border-border/30 pt-1.5">
+                      <span className="text-accent font-semibold">{u.worker}</span>
+                      {u.job_card && <span className="text-text-muted"> · {u.job_card.job_number}</span>}
+                      <span className="text-text-primary"> — {u.message}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -303,22 +291,12 @@ export function StaffJobsPanel() {
       </AnimatePresence>
 
       {/* Toggle button */}
-      <button
-        onClick={toggle}
-        className="w-full flex items-center justify-between px-3 py-2.5 bg-bg-elevated border border-border rounded-lg hover:border-border-strong transition-colors shadow-elevated"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between w-full px-4 py-2.5 bg-bg-elevated border border-border rounded-lg hover:border-border-strong transition-colors shadow-elevated">
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-accent" />
           <span className="text-sm font-semibold text-text-primary">Staff Panel</span>
-          {totalJobs > 0 && (
-            <span className="unread-dot">{totalJobs}</span>
-          )}
-          {urgentCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-red-400">
-              <AlertTriangle className="w-3 h-3" />
-              {urgentCount} urgent
-            </span>
-          )}
+          {totalJobs > 0 && <span className="unread-dot">{totalJobs}</span>}
         </div>
         {isOpen ? <ChevronDown className="w-4 h-4 text-text-muted" /> : <ChevronUp className="w-4 h-4 text-text-muted" />}
       </button>
