@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Users, FileText, Briefcase,
-  ShoppingBag, MessageSquare, UserCog, Settings, LogOut,
+  ShoppingBag, MessageSquare, UserCog, Settings, LogOut, CreditCard,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -21,7 +21,8 @@ const navItems = [
   { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/job-cards', icon: Briefcase, label: 'Job Cards' },
   { href: '/retail', icon: ShoppingBag, label: 'Retail' },
-  { href: '/messaging', icon: MessageSquare, label: 'Messages' },
+  { href: '/messages', icon: MessageSquare, label: 'Messages' },
+  { href: '/reception', icon: CreditCard, label: 'Reception' },
 ]
 
 const adminItems = [
@@ -37,11 +38,9 @@ export function Sidebar() {
   async function handleLogout() {
     try {
       await supabase.auth.signOut()
-      // Clear persisted auth from localStorage
       localStorage.removeItem('la-signs-auth')
       toast.success('Signed out')
     } catch {
-      // Force clear anyway
       localStorage.removeItem('la-signs-auth')
     }
     router.push('/login')
@@ -110,6 +109,7 @@ export function Sidebar() {
             <p className="text-sm font-semibold text-text-primary truncate">{profile?.full_name || '—'}</p>
             <p className="text-[10px] text-text-muted capitalize">{profile?.role}</p>
           </div>
+          <NotificationBell />
         </div>
         <button onClick={handleLogout} className="sidebar-link w-full text-red-400/70 hover:text-red-400">
           <LogOut className="w-4 h-4" />
