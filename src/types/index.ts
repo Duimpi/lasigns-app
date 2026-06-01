@@ -257,3 +257,48 @@ export interface DailyUpdate {
   profile?: Profile
   job_card?: JobCard
 }
+
+// ─── PAYMENTS ───────────────────────────────────────────────
+
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid'
+export type PaymentMethod = 'cash' | 'card' | 'eft' | 'other'
+
+// ─── DELIVERIES ─────────────────────────────────────────────
+
+export type DeliveryType = 'delivery' | 'collection'
+export type DeliveryStatus = 'pending' | 'ready' | 'out_for_delivery' | 'completed' | 'failed'
+
+export interface Delivery {
+  id: string
+  job_card_id?: string
+  quote_id?: string
+  type: DeliveryType
+  status: DeliveryStatus
+  client_name?: string
+  address?: string
+  contact_number?: string
+  scheduled_date?: string
+  scheduled_time?: string
+  notes?: string
+  driver?: string
+  created_by?: string
+  created_at: string
+  updated_at: string
+  job_card?: JobCard
+}
+
+// ─── NOTIFICATIONS ──────────────────────────────────────────
+
+export interface AppNotification {
+  id: string
+  recipient_id: string
+  sender_id?: string
+  type: string
+  title: string
+  message: string
+  entity_type?: string
+  entity_id?: string
+  is_read: boolean
+  created_at: string
+  sender?: Profile
+}

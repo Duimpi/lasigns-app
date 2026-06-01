@@ -299,6 +299,20 @@ function JobCardsPageInner() {
         performed_by: profile?.id,
       })
 
+      // Notify admins if job completed/delivered
+      if (['completed', 'delivered'].includes(data.status) && profile) {
+        const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
+        if (admins) {
+          const worker = data.assigned_worker || profile.full_name
+          await supabase.from('notifications').insert(admins.map((a: any) => ({
+            recipient_id: a.id, sender_id: profile.id, type: 'job_completed',
+            title: `Job ${data.status === 'delivered' ? 'Delivered' : 'Completed'}`,
+            message: `${jobNumber} — ${data.title} marked as ${data.status} by ${worker}`,
+            entity_type: 'job_card', entity_id: jobId,
+          })))
+        }
+      }
+
       toast.success(editingJob ? 'Job card updated' : 'Job card created')
       setIsFormOpen(false)
       loadJobs()
