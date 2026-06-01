@@ -352,8 +352,10 @@ export function generateQuotePDF(quote: {
   let y = m
 
   // ── HEADER ────────────────────────────────────────────────
-  // Logo
+  // Logo - white background to mask PNG black background
   try {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(m, y, 45, 25, 'F')
     doc.addImage(LOGO_BASE64, 'PNG', m, y, 45, 25)
   } catch {
     doc.setFontSize(16)

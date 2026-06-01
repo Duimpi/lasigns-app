@@ -56,6 +56,7 @@ export function Sidebar() {
           width={160}
           height={60}
           className="object-contain max-h-14"
+          style={{ mixBlendMode: 'screen' }}
           priority
         />
       </div>
