@@ -45,6 +45,7 @@ function ReceptionPageInner() {
   const [walkinMethod, setWalkinMethod] = useState<PaymentMethod>('cash')
   const [walkinNote, setWalkinNote] = useState('')
   const [isSavingWalkin, setIsSavingWalkin] = useState(false)
+  const [walkins, setWalkins] = useState<any[]>([])
 
   useEffect(() => { loadData() }, [])
 
@@ -72,6 +73,13 @@ function ReceptionPageInner() {
         ...((paidQ || []).map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
         ...((paidJ || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
+      // Load walk-ins
+      const { data: walkinData } = await supabase
+        .from('walkin_payments')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setWalkins(walkinData || [])
     } finally { setIsLoading(false) }
   }
 
@@ -111,23 +119,28 @@ function ReceptionPageInner() {
     if (!walkinName.trim() || !walkinAmount) return
     setIsSavingWalkin(true)
     try {
-      const { data: client } = await supabase.from('clients')
-        .insert({ name: walkinName.trim(), created_by: profile?.id }).select().single()
-      if (walkinPhone && client) {
-        await supabase.from('client_phones').insert({ client_id: client.id, phone: walkinPhone, is_primary: true })
-      }
-      const year = new Date().getFullYear()
-      const rand = Math.floor(Math.random() * 9000) + 1000
       const total = parseFloat(walkinAmount)
-      await supabase.from('job_cards').insert({
-        job_number: `WI-${rand}-${year}`, title: `Walk-in — ${walkinName.trim()}`,
-        client_name: walkinName.trim(), client_id: client?.id,
-        status: 'completed', priority: 'normal', is_retail: false,
-        total, subtotal: total / 1.15, vat_amount: total - total / 1.15, vat_rate: 15,
-        payment_status: 'paid', payment_method: walkinMethod, amount_paid: total,
-        payment_date: new Date().toISOString(), payment_note: walkinNote || 'Walk-in payment',
+      const { error } = await supabase.from('walkin_payments').insert({
+        client_name: walkinName.trim(),
+        phone: walkinPhone || null,
+        amount: total,
+        payment_method: walkinMethod,
+        note: walkinNote || null,
         created_by: profile?.id,
       })
+      if (error) throw error
+
+      // Notify admins
+      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
+      if (admins && profile) {
+        await supabase.from('notifications').insert(admins.map((a: any) => ({
+          recipient_id: a.id, sender_id: profile.id, type: 'payment_received',
+          title: 'Walk-in Payment',
+          message: `${walkinName} paid ${formatCurrency(total)} cash (walk-in)`,
+          entity_type: 'walkin', entity_id: null,
+        })))
+      }
+
       toast.success(`Walk-in recorded — ${walkinName} paid ${formatCurrency(total)}`)
       setWalkinName(''); setWalkinPhone(''); setWalkinAmount(''); setWalkinNote('')
       loadData()
@@ -177,6 +190,7 @@ function ReceptionPageInner() {
             { key: 'outstanding', label: 'Outstanding', count: items.length },
             { key: 'paid_today', label: 'Paid Today', count: paidToday.length },
             { key: 'walkin', label: '+ Walk-in' },
+      { key: 'walkins_list', label: 'Walk-in List', count: walkins.length },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as Tab)}
               className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
@@ -295,6 +309,30 @@ function ReceptionPageInner() {
           </div>
         )}
       </div>
+
+      {/* Walk-ins list */}
+      {tab === 'walkins_list' && (
+        <div className="space-y-3">
+          {walkins.length === 0 ? (
+            <div className="card py-12 text-center text-text-muted">No walk-in payments yet</div>
+          ) : walkins.map((w: any) => (
+            <div key={w.id} className="card p-4 border-l-4 border-blue-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-text-primary">{w.client_name}</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    {w.phone && <span className="text-xs text-text-muted">{w.phone}</span>}
+                    <span className="text-xs text-text-muted capitalize">{w.payment_method}</span>
+                    {w.note && <span className="text-xs text-text-muted">{w.note}</span>}
+                  </div>
+                  <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
+                </div>
+                <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.amount)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Payment modal */}
       {payingItem && (
