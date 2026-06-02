@@ -61,6 +61,10 @@ function ReceptionPageInner() {
   const [isSavingWalkin, setIsSavingWalkin] = useState(false)
   const [clientSuggestions, setClientSuggestions] = useState<any[]>([])
   const [walkinClientId, setWalkinClientId] = useState<string | null>(null)
+  const [editingWalkin, setEditingWalkin] = useState<any | null>(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [editNote, setEditNote] = useState('')
+  const [editMethod, setEditMethod] = useState<PaymentMethod>('cash')
 
   useEffect(() => { loadData() }, [])
 
@@ -158,6 +162,30 @@ function ReceptionPageInner() {
       loadData()
     } catch (err: any) { toast.error(`Failed: ${err.message}`) }
     finally { setIsSaving(false) }
+  }
+
+  async function deleteWalkin(id: string) {
+    if (!confirm('Delete this walk-in payment?')) return
+    const { error } = await supabase.from('job_cards').delete().eq('id', id)
+    if (error) { toast.error('Failed to delete'); return }
+    toast.success('Walk-in deleted')
+    loadData()
+  }
+
+  async function saveEditWalkin() {
+    if (!editingWalkin || !editAmount) return
+    const total = parseFloat(editAmount)
+    const notes = `Walk-in | Method: ${editMethod} | Amount: N$${total}${editNote ? ' | Note: ' + editNote : ''}`
+    const { error } = await supabase.from('job_cards').update({
+      total,
+      subtotal: parseFloat((total / 1.15).toFixed(2)),
+      vat_amount: parseFloat((total - total / 1.15).toFixed(2)),
+      notes,
+    }).eq('id', editingWalkin.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success('Walk-in updated')
+    setEditingWalkin(null)
+    loadData()
   }
 
   async function searchClients(name: string) {
@@ -426,8 +454,8 @@ function ReceptionPageInner() {
               <div className="card py-12 text-center text-text-muted">No walk-in payments yet</div>
             ) : walkinList.map(w => (
               <div key={w.id} className="card p-4 border-l-4 border-blue-500">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-mono text-xs text-accent">{w.job_number}</span>
                       {w.notes?.includes('Method: cash') && <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Cash</span>}
@@ -436,16 +464,67 @@ function ReceptionPageInner() {
                       {!w.notes?.includes('Method:') && <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Cash</span>}
                     </div>
                     <p className="font-semibold text-text-primary">{w.client_name}</p>
-                    {w.notes && <p className="text-xs text-text-muted mt-0.5">{w.notes.replace(/Walk-in \| Method: \w+ \| Amount: N\$[\d.]+/, '').trim() || w.notes}</p>}
+                    {w.notes && <p className="text-xs text-text-muted mt-0.5">{w.notes}</p>}
                     <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
                   </div>
-                  <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.total)}</p>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.total)}</p>
+                    <div className="flex gap-1">
+                      <button onClick={() => {
+                        setEditingWalkin(w)
+                        setEditAmount(w.total.toString())
+                        setEditNote(w.notes || '')
+                        setEditMethod(w.notes?.includes('card') ? 'card' : w.notes?.includes('eft') ? 'eft' : 'cash')
+                      }} className="btn-secondary btn-sm text-xs px-2 py-1">Edit</button>
+                      <button onClick={() => deleteWalkin(w.id)} className="btn-sm px-2 py-1 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg border border-red-500/30">Delete</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Edit walkin modal */}
+      {editingWalkin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm shadow-modal">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div>
+                <p className="font-semibold text-text-primary">Edit Walk-in</p>
+                <p className="text-xs text-text-muted">{editingWalkin.client_name}</p>
+              </div>
+              <button onClick={() => setEditingWalkin(null)} className="btn-icon w-7 h-7"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="label">Amount</label>
+                <input value={editAmount} onChange={e => setEditAmount(e.target.value)} className="input text-lg font-bold" type="number" step="0.01" />
+              </div>
+              <div>
+                <label className="label mb-2">Method</label>
+                <div className="flex gap-2">
+                  {(['cash', 'card', 'eft'] as PaymentMethod[]).map(m => (
+                    <button key={m} onClick={() => setEditMethod(m)}
+                      className={`flex-1 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${editMethod === m ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'}`}>
+                      {m.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="label">Note</label>
+                <input value={editNote} onChange={e => setEditNote(e.target.value)} className="input" placeholder="Note..." />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingWalkin(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={saveEditWalkin} className="btn-primary flex-1">Save Changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Payment modal */}
       {payingItem && (
