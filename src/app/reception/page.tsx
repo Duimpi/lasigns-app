@@ -132,9 +132,10 @@ function ReceptionPageInner() {
     try {
       const total = parseFloat(walkinAmount)
       // Store walk-in as activity log (bypasses schema cache issues)
+      const fakeId = crypto.randomUUID()
       const { error } = await supabase.from('activity_logs').insert({
         entity_type: 'walkin_payment',
-        entity_id: null,
+        entity_id: fakeId,
         action: 'created',
         details: {
           client_name: walkinName.trim(),
