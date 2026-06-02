@@ -76,11 +76,20 @@ function ReceptionPageInner() {
       // Load walk-ins
       try {
         const { data: walkinData } = await supabase
-          .from('walkin_payments')
+          .from('activity_logs')
           .select('*')
+          .eq('entity_type', 'walkin_payment')
           .order('created_at', { ascending: false })
           .limit(50)
-        setWalkins(walkinData || [])
+        setWalkins((walkinData || []).map((w: any) => ({
+          id: w.id,
+          client_name: w.details?.client_name,
+          phone: w.details?.phone,
+          amount: w.details?.amount,
+          payment_method: w.details?.payment_method,
+          note: w.details?.note,
+          created_at: w.created_at,
+        })))
       } catch { setWalkins([]) }
     } finally { setIsLoading(false) }
   }
@@ -122,13 +131,19 @@ function ReceptionPageInner() {
     setIsSavingWalkin(true)
     try {
       const total = parseFloat(walkinAmount)
-      const { error } = await supabase.rpc('save_walkin', {
-        p_client_name: walkinName.trim(),
-        p_phone: walkinPhone || null,
-        p_amount: total,
-        p_method: walkinMethod,
-        p_note: walkinNote || null,
-        p_user_id: profile?.id,
+      // Store walk-in as activity log (bypasses schema cache issues)
+      const { error } = await supabase.from('activity_logs').insert({
+        entity_type: 'walkin_payment',
+        entity_id: null,
+        action: 'created',
+        details: {
+          client_name: walkinName.trim(),
+          phone: walkinPhone || null,
+          amount: total,
+          payment_method: walkinMethod,
+          note: walkinNote || null,
+        },
+        performed_by: profile?.id,
       })
       if (error) throw error
 
