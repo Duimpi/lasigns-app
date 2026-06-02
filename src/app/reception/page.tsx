@@ -21,8 +21,8 @@ interface PayableItem {
   number: string
   client_name: string
   total: number
-  amount_paid: number
-  payment_status: string
+  amount_paid?: number
+  payment_status?: string
   status: string
   created_at: string
 }
@@ -33,9 +33,7 @@ interface CollectionItem {
   title: string
   client_name: string
   total: number
-  collection_status: string
   status: string
-  payment_status: string
   created_at: string
 }
 
@@ -74,18 +72,18 @@ function ReceptionPageInner() {
       // Ready for collection - completed/delivered jobs not yet collected
       const { data: collData } = await supabase
         .from('job_cards')
-        .select('id, job_number, title, client_name, total, collection_status, status, payment_status, created_at')
-        .in('status', ['completed', 'delivered'])
-        .neq('collection_status', 'collected')
+        .select('id, job_number, title, client_name, total, status, created_at')
+        .eq('status', 'completed')
+        .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
       setCollectionItems((collData || []) as CollectionItem[])
 
       // Outstanding payments
       const [{ data: quotes }, { data: jobs }] = await Promise.all([
-        supabase.from('quotes').select('id, quote_number, client_name, total, amount_paid, payment_status, status, created_at')
-          .in('payment_status', ['unpaid', 'partial']).not('status', 'in', '(draft,cancelled)').order('created_at', { ascending: false }),
-        supabase.from('job_cards').select('id, job_number, client_name, total, amount_paid, payment_status, status, created_at')
-          .in('payment_status', ['unpaid', 'partial']).order('created_at', { ascending: false }),
+        supabase.from('quotes').select('id, quote_number, client_name, total, status, created_at')
+          .not('status', 'in', '(draft,cancelled)').order('created_at', { ascending: false }).limit(20),
+        supabase.from('job_cards').select('id, job_number, client_name, total, status, created_at')
+          .in('status', ['completed']).not('job_number', 'like', 'WI-%').order('created_at', { ascending: false }),
       ])
 
       setItems([
@@ -107,9 +105,8 @@ function ReceptionPageInner() {
 
   async function markCollected(item: CollectionItem) {
     const { error } = await supabase.from('job_cards').update({
-      collection_status: 'collected',
-      collected_at: new Date().toISOString(),
-      collected_by: profile?.id,
+      status: 'delivered',
+      notes: `Collected on ${new Date().toLocaleDateString()} by ${profile?.full_name}`,
     }).eq('id', item.id)
 
     if (error) { toast.error(`Failed: ${error.message}`); return }
@@ -135,12 +132,14 @@ function ReceptionPageInner() {
     setIsSaving(true)
     try {
       const amount = parseFloat(payAmount)
-      const newPaid = (payingItem.amount_paid || 0) + amount
-      const newStatus = newPaid >= payingItem.total ? 'paid' : 'partial'
+      const newPaid = amount
+      const newStatus = amount >= payingItem.total ? 'paid' : 'partial'
       const table = payingItem.type === 'quote' ? 'quotes' : 'job_cards'
+      // Store payment info in notes field (bypasses schema cache)
+      const paymentNote = `PAID: N$${newPaid} (${payMethod})${payNote ? ' - ' + payNote : ''} on ${new Date().toLocaleDateString()}`
       const { error } = await supabase.from(table).update({
-        payment_status: newStatus, payment_method: payMethod,
-        amount_paid: newPaid, payment_date: new Date().toISOString(), payment_note: payNote || null,
+        notes: paymentNote,
+        status: newStatus === 'paid' ? 'delivered' : undefined,
       }).eq('id', payingItem.id)
       if (error) throw error
 
@@ -202,19 +201,14 @@ function ReceptionPageInner() {
         title: walkinNote ? `Walk-in: ${walkinNote}` : `Walk-in Payment`,
         client_name: walkinName.trim(),
         client_id: clientId,
-        status: 'completed',
+        status: 'delivered',
         priority: 'normal',
         is_retail: false,
         total,
         subtotal: parseFloat((total / 1.15).toFixed(2)),
         vat_amount: parseFloat((total - total / 1.15).toFixed(2)),
         vat_rate: 15,
-        payment_status: 'paid',
-        payment_method: walkinMethod,
-        amount_paid: total,
-        payment_date: new Date().toISOString(),
-        payment_note: walkinNote || 'Walk-in payment',
-        collection_status: 'collected',
+        notes: `Walk-in | Method: ${walkinMethod} | Amount: N$${total}`,
         created_by: profile?.id,
       })
       if (error) throw error
@@ -242,7 +236,7 @@ function ReceptionPageInner() {
     search ? (i.client_name || '').toLowerCase().includes(search.toLowerCase()) ||
              i.number.toLowerCase().includes(search.toLowerCase()) : true
   )
-  const totalOutstanding = filteredItems.reduce((sum, i) => sum + (i.total - (i.amount_paid || 0)), 0)
+  const totalOutstanding = filteredItems.reduce((sum, i) => sum + (i.total || 0), 0)
 
   const MethodBtn = ({ method, label, icon: Icon, state, setState }: any) => (
     <button onClick={() => setState(method)}
@@ -312,10 +306,8 @@ function ReceptionPageInner() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-xs text-accent">{item.job_number}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
-                          item.payment_status === 'paid' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {item.payment_status === 'paid' ? '✓ Paid' : 'Not Paid'}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">
+                          Ready
                         </span>
                       </div>
                       <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
@@ -361,8 +353,7 @@ function ReceptionPageInner() {
                         <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
                         <div className="flex items-center gap-3 mt-1">
                           <span className="text-sm text-text-muted">Total: <span className="font-medium text-text-primary">{formatCurrency(item.total)}</span></span>
-                          {(item.amount_paid || 0) > 0 && <span className="text-sm text-text-muted">Paid: <span className="text-emerald-400 font-medium">{formatCurrency(item.amount_paid)}</span></span>}
-                          <span className="text-sm text-text-muted">Due: <span className="text-amber-400 font-bold">{formatCurrency(outstanding)}</span></span>
+                          <span className="text-sm text-text-muted">Amount: <span className="text-amber-400 font-bold">{formatCurrency(item.total)}</span></span>
                         </div>
                       </div>
                       <button onClick={() => { setPayingItem(item); setPayAmount(outstanding.toFixed(2)) }} className="btn-primary btn-sm shrink-0">
