@@ -9,11 +9,11 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   CreditCard, Banknote, Building2, CheckCircle2,
-  AlertCircle, Search, Plus, X
+  AlertCircle, Search, Plus, X, Package, PackageCheck
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'outstanding' | 'paid_today' | 'walkin' | 'walkins_list'
+type Tab = 'collection' | 'outstanding' | 'walkin' | 'walkin_list'
 
 interface PayableItem {
   id: string
@@ -27,10 +27,24 @@ interface PayableItem {
   created_at: string
 }
 
+interface CollectionItem {
+  id: string
+  job_number: string
+  title: string
+  client_name: string
+  total: number
+  collection_status: string
+  status: string
+  payment_status: string
+  created_at: string
+}
+
 function ReceptionPageInner() {
   const { profile } = useAuthStore()
-  const [tab, setTab] = useState<Tab>('outstanding')
+  const [tab, setTab] = useState<Tab>('collection')
   const [items, setItems] = useState<PayableItem[]>([])
+  const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([])
+  const [walkinList, setWalkinList] = useState<any[]>([])
   const [paidToday, setPaidToday] = useState<PayableItem[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -39,13 +53,14 @@ function ReceptionPageInner() {
   const [payAmount, setPayAmount] = useState('')
   const [payNote, setPayNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+
+  // Walk-in
   const [walkinName, setWalkinName] = useState('')
   const [walkinPhone, setWalkinPhone] = useState('')
   const [walkinAmount, setWalkinAmount] = useState('')
   const [walkinMethod, setWalkinMethod] = useState<PaymentMethod>('cash')
   const [walkinNote, setWalkinNote] = useState('')
   const [isSavingWalkin, setIsSavingWalkin] = useState(false)
-  const [walkins, setWalkins] = useState<any[]>([])
   const [clientSuggestions, setClientSuggestions] = useState<any[]>([])
   const [walkinClientId, setWalkinClientId] = useState<string | null>(null)
 
@@ -56,36 +71,63 @@ function ReceptionPageInner() {
     try {
       const today = new Date().toISOString().split('T')[0]
 
-      const [{ data: quotes }, { data: jobs }, { data: paidQ }, { data: paidJ }] = await Promise.all([
+      // Ready for collection - completed/delivered jobs not yet collected
+      const { data: collData } = await supabase
+        .from('job_cards')
+        .select('id, job_number, title, client_name, total, collection_status, status, payment_status, created_at')
+        .in('status', ['completed', 'delivered'])
+        .neq('collection_status', 'collected')
+        .order('created_at', { ascending: false })
+      setCollectionItems((collData || []) as CollectionItem[])
+
+      // Outstanding payments
+      const [{ data: quotes }, { data: jobs }] = await Promise.all([
         supabase.from('quotes').select('id, quote_number, client_name, total, amount_paid, payment_status, status, created_at')
           .in('payment_status', ['unpaid', 'partial']).not('status', 'in', '(draft,cancelled)').order('created_at', { ascending: false }),
         supabase.from('job_cards').select('id, job_number, client_name, total, amount_paid, payment_status, status, created_at')
-          .in('payment_status', ['unpaid', 'partial']).not('status', 'in', '(pending)').order('created_at', { ascending: false }),
-        supabase.from('quotes').select('id, quote_number, client_name, total, amount_paid, payment_status, status, created_at')
-          .eq('payment_status', 'paid').gte('payment_date', today),
-        supabase.from('job_cards').select('id, job_number, client_name, total, amount_paid, payment_status, status, created_at')
-          .eq('payment_status', 'paid').gte('payment_date', today),
+          .in('payment_status', ['unpaid', 'partial']).order('created_at', { ascending: false }),
       ])
 
       setItems([
         ...((quotes || []).map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
         ...((jobs || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
-      setPaidToday([
-        ...((paidQ || []).map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
-        ...((paidJ || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
-      ])
-      // Load walk-ins
-      try {
-        const { data: walkinData } = await supabase
-          .from('job_cards')
-          .select('id, job_number, client_name, total, payment_method, payment_note, created_at')
-          .like('job_number', 'WI-%')
-          .order('created_at', { ascending: false })
-          .limit(50)
-        setWalkins(walkinData || [])
-      } catch { setWalkins([]) }
+
+      // Walk-in list from job_cards with WI- prefix
+      const { data: wiData } = await supabase
+        .from('job_cards')
+        .select('id, job_number, client_name, total, payment_method, payment_note, created_at')
+        .like('job_number', 'WI-%')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setWalkinList(wiData || [])
+
     } finally { setIsLoading(false) }
+  }
+
+  async function markCollected(item: CollectionItem) {
+    const { error } = await supabase.from('job_cards').update({
+      collection_status: 'collected',
+      collected_at: new Date().toISOString(),
+      collected_by: profile?.id,
+    }).eq('id', item.id)
+
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+
+    // Notify admins
+    const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
+    if (admins && profile) {
+      await supabase.from('notifications').insert(admins.map((a: any) => ({
+        recipient_id: a.id, sender_id: profile.id,
+        type: 'job_collected',
+        title: '📦 Job Collected',
+        message: `${item.client_name} collected ${item.job_number} — ${item.title}`,
+        entity_type: 'job_card', entity_id: item.id,
+      }))).catch(() => {})
+    }
+
+    toast.success(`✅ ${item.client_name} collected their order`)
+    loadData()
   }
 
   async function recordPayment() {
@@ -102,15 +144,14 @@ function ReceptionPageInner() {
       }).eq('id', payingItem.id)
       if (error) throw error
 
-      // Notify admins
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
       if (admins && profile) {
-        await supabase.from('notifications').insert(admins.map(a => ({
+        await supabase.from('notifications').insert(admins.map((a: any) => ({
           recipient_id: a.id, sender_id: profile.id, type: 'payment_received',
-          title: 'Payment Received',
+          title: '💰 Payment Received',
           message: `${payingItem.client_name} paid ${formatCurrency(amount)} (${payMethod}) for ${payingItem.number}`,
           entity_type: payingItem.type, entity_id: payingItem.id,
-        })))
+        }))).catch(() => {})
       }
 
       toast.success(newStatus === 'paid' ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
@@ -120,25 +161,61 @@ function ReceptionPageInner() {
     finally { setIsSaving(false) }
   }
 
+  async function searchClients(name: string) {
+    if (!name.trim() || name.length < 2) { setClientSuggestions([]); return }
+    const { data } = await supabase.from('clients')
+      .select('id, name, company').ilike('name', `%${name}%`).limit(5)
+    setClientSuggestions(data || [])
+  }
+
   async function saveWalkin() {
     if (!walkinName.trim() || !walkinAmount) return
     setIsSavingWalkin(true)
     try {
       const total = parseFloat(walkinAmount)
-      // Store walk-in as activity log (bypasses schema cache issues)
-      const fakeId = crypto.randomUUID()
-      const { error } = await supabase.from('activity_logs').insert({
-        entity_type: 'walkin_payment',
-        entity_id: fakeId,
-        action: 'created',
-        details: {
-          client_name: walkinName.trim(),
-          phone: walkinPhone || null,
-          amount: total,
-          payment_method: walkinMethod,
-          note: walkinNote || null,
-        },
-        performed_by: profile?.id,
+
+      // Find or create client
+      let clientId = walkinClientId
+      if (!clientId) {
+        const { data: existing } = await supabase.from('clients')
+          .select('id').ilike('name', walkinName.trim()).limit(1)
+        if (existing && existing.length > 0) {
+          clientId = existing[0].id
+        } else {
+          const { data: newClient } = await supabase.from('clients')
+            .insert({ name: walkinName.trim(), created_by: profile?.id }).select('id').single()
+          if (newClient) {
+            clientId = newClient.id
+            if (walkinPhone) {
+              await supabase.from('client_phones').insert({
+                client_id: clientId, phone: walkinPhone, is_primary: true
+              }).catch(() => {})
+            }
+          }
+        }
+      }
+
+      const year = new Date().getFullYear()
+      const rand = Math.floor(Math.random() * 9000) + 1000
+      const { error } = await supabase.from('job_cards').insert({
+        job_number: `WI-${rand}-${year}`,
+        title: walkinNote ? `Walk-in: ${walkinNote}` : `Walk-in Payment`,
+        client_name: walkinName.trim(),
+        client_id: clientId,
+        status: 'completed',
+        priority: 'normal',
+        is_retail: false,
+        total,
+        subtotal: parseFloat((total / 1.15).toFixed(2)),
+        vat_amount: parseFloat((total - total / 1.15).toFixed(2)),
+        vat_rate: 15,
+        payment_status: 'paid',
+        payment_method: walkinMethod,
+        amount_paid: total,
+        payment_date: new Date().toISOString(),
+        payment_note: walkinNote || 'Walk-in payment',
+        collection_status: 'collected',
+        created_by: profile?.id,
       })
       if (error) throw error
 
@@ -147,30 +224,30 @@ function ReceptionPageInner() {
       if (admins && profile) {
         await supabase.from('notifications').insert(admins.map((a: any) => ({
           recipient_id: a.id, sender_id: profile.id, type: 'payment_received',
-          title: 'Walk-in Payment',
-          message: `${walkinName} paid ${formatCurrency(total)} cash (walk-in)`,
-          entity_type: 'walkin', entity_id: null,
-        })))
+          title: '💰 Walk-in Payment',
+          message: `${walkinName} paid ${formatCurrency(total)} (${walkinMethod}) — walk-in`,
+          entity_type: 'job_card', entity_id: null,
+        }))).catch(() => {})
       }
 
       toast.success(`Walk-in recorded — ${walkinName} paid ${formatCurrency(total)}`)
-      setWalkinName(''); setWalkinPhone(''); setWalkinAmount(''); setWalkinNote('')
+      setWalkinName(''); setWalkinPhone(''); setWalkinAmount('')
+      setWalkinNote(''); setWalkinClientId(null); setClientSuggestions([])
       loadData()
     } catch (err: any) { toast.error(`Failed: ${err.message}`) }
     finally { setIsSavingWalkin(false) }
   }
 
-  const filtered = items.filter(i =>
-    search ? (i.client_name || '').toLowerCase().includes(search.toLowerCase()) || i.number.toLowerCase().includes(search.toLowerCase()) : true
+  const filteredItems = items.filter(i =>
+    search ? (i.client_name || '').toLowerCase().includes(search.toLowerCase()) ||
+             i.number.toLowerCase().includes(search.toLowerCase()) : true
   )
-  const totalOutstanding = filtered.reduce((sum, i) => sum + (i.total - (i.amount_paid || 0)), 0)
-  const totalPaidToday = paidToday.reduce((sum, i) => sum + i.total, 0)
+  const totalOutstanding = filteredItems.reduce((sum, i) => sum + (i.total - (i.amount_paid || 0)), 0)
 
-  const MethodBtn = ({ method, icon: Icon, label }: { method: PaymentMethod, icon: any, label: string }) => (
-    <button onClick={() => { setPayMethod(method); setWalkinMethod(method) }}
-      className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-all ${
-        payMethod === method || walkinMethod === method
-          ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'
+  const MethodBtn = ({ method, label, icon: Icon, state, setState }: any) => (
+    <button onClick={() => setState(method)}
+      className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border-2 transition-all ${
+        state === method ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'
       }`}>
       <Icon className="w-4 h-4" />
       <span className="text-xs font-semibold">{label}</span>
@@ -179,33 +256,37 @@ function ReceptionPageInner() {
 
   return (
     <AppShell>
-      <PageHeader title="RECEPTION" subtitle="Payment collection — Michelle" />
+      <PageHeader title="RECEPTION" subtitle="Collections & Payments — Michelle" />
       <div className="px-6 pb-6 space-y-4">
 
-        {/* Summary */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Summary cards */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="card p-4">
+            <div className="flex items-center gap-2 mb-2"><Package className="w-4 h-4 text-blue-400" /><span className="text-sm text-text-muted">Ready to Collect</span></div>
+            <p className="text-2xl font-bold text-blue-400">{collectionItems.length}</p>
+          </div>
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4 text-amber-400" /><span className="text-sm text-text-muted">Outstanding</span></div>
             <p className="text-2xl font-bold text-amber-400">{formatCurrency(totalOutstanding)}</p>
-            <p className="text-xs text-text-muted mt-1">{filtered.length} items</p>
           </div>
           <div className="card p-4">
-            <div className="flex items-center gap-2 mb-2"><CheckCircle2 className="w-4 h-4 text-emerald-400" /><span className="text-sm text-text-muted">Paid Today</span></div>
-            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(totalPaidToday)}</p>
-            <p className="text-xs text-text-muted mt-1">{paidToday.length} payments</p>
+            <div className="flex items-center gap-2 mb-2"><CheckCircle2 className="w-4 h-4 text-emerald-400" /><span className="text-sm text-text-muted">Walk-ins Today</span></div>
+            <p className="text-2xl font-bold text-emerald-400">
+              {walkinList.filter(w => new Date(w.created_at).toDateString() === new Date().toDateString()).length}
+            </p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-border">
+        <div className="flex gap-1 border-b border-border overflow-x-auto">
           {[
-            { key: 'outstanding', label: 'Outstanding', count: items.length },
-            { key: 'paid_today', label: 'Paid Today', count: paidToday.length },
+            { key: 'collection', label: '📦 Collections', count: collectionItems.length },
+            { key: 'outstanding', label: '💳 Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
-      { key: 'walkins_list', label: 'Walk-in List', count: walkins.length },
+            { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as Tab)}
-              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-2 ${
                 tab === t.key ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}>
               {t.label}
@@ -216,7 +297,42 @@ function ReceptionPageInner() {
           ))}
         </div>
 
-        {/* Outstanding */}
+        {/* COLLECTIONS TAB */}
+        {tab === 'collection' && (
+          <div className="space-y-3">
+            {isLoading ? <div className="card py-12 text-center text-text-muted">Loading...</div>
+              : collectionItems.length === 0 ? (
+                <div className="card py-12 text-center">
+                  <PackageCheck className="w-10 h-10 text-emerald-400 mx-auto mb-3 opacity-50" />
+                  <p className="text-text-muted">No orders waiting for collection</p>
+                </div>
+              ) : collectionItems.map(item => (
+                <div key={item.id} className="card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                          item.payment_status === 'paid' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {item.payment_status === 'paid' ? '✓ Paid' : 'Not Paid'}
+                        </span>
+                      </div>
+                      <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
+                      <p className="text-sm text-text-muted mt-0.5 truncate">{item.title}</p>
+                      <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
+                    </div>
+                    <button onClick={() => markCollected(item)}
+                      className="btn-primary btn-sm shrink-0 flex items-center gap-1.5">
+                      <PackageCheck className="w-3.5 h-3.5" /> Collected
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* OUTSTANDING TAB */}
         {tab === 'outstanding' && (
           <div className="space-y-3">
             <div className="relative">
@@ -224,12 +340,12 @@ function ReceptionPageInner() {
               <input value={search} onChange={e => setSearch(e.target.value)} className="input pl-9" placeholder="Search by name or number..." />
             </div>
             {isLoading ? <div className="card py-12 text-center text-text-muted">Loading...</div>
-              : filtered.length === 0 ? (
+              : filteredItems.length === 0 ? (
                 <div className="card py-12 text-center">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3 opacity-50" />
                   <p className="text-text-muted">All accounts settled!</p>
                 </div>
-              ) : filtered.map(item => {
+              ) : filteredItems.map(item => {
                 const outstanding = item.total - (item.amount_paid || 0)
                 return (
                   <div key={item.id} className="card p-4">
@@ -244,7 +360,7 @@ function ReceptionPageInner() {
                         </div>
                         <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
                         <div className="flex items-center gap-3 mt-1">
-                          <span className="text-sm text-text-muted">Total: <span className="text-text-primary font-medium">{formatCurrency(item.total)}</span></span>
+                          <span className="text-sm text-text-muted">Total: <span className="font-medium text-text-primary">{formatCurrency(item.total)}</span></span>
                           {(item.amount_paid || 0) > 0 && <span className="text-sm text-text-muted">Paid: <span className="text-emerald-400 font-medium">{formatCurrency(item.amount_paid)}</span></span>}
                           <span className="text-sm text-text-muted">Due: <span className="text-amber-400 font-bold">{formatCurrency(outstanding)}</span></span>
                         </div>
@@ -259,46 +375,31 @@ function ReceptionPageInner() {
           </div>
         )}
 
-        {/* Paid today */}
-        {tab === 'paid_today' && (
-          <div className="space-y-3">
-            {paidToday.length === 0
-              ? <div className="card py-12 text-center text-text-muted">No payments today yet</div>
-              : paidToday.map(item => (
-                <div key={item.id} className="card p-4 border-l-4 border-emerald-500">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-mono text-xs text-accent">{item.number}</span>
-                      <p className="font-semibold text-text-primary">{item.client_name}</p>
-                    </div>
-                    <p className="text-lg font-bold text-emerald-400">{formatCurrency(item.total)}</p>
-                  </div>
-                </div>
-              ))}
-          </div>
-        )}
-
-        {/* Walk-in */}
+        {/* WALK-IN TAB */}
         {tab === 'walkin' && (
           <div className="card p-5 space-y-4">
             <div>
               <h3 className="font-semibold text-text-primary mb-1">Quick Walk-in Payment</h3>
-              <p className="text-xs text-text-muted">For clients paying cash without a quote or job card</p>
+              <p className="text-xs text-text-muted">Search existing clients or add a new one</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 relative">
                 <label className="label">Client Name *</label>
-                <input value={walkinName} onChange={e => { setWalkinName(e.target.value); setWalkinClientId(null); searchClients(e.target.value) }} className="input" placeholder="Type name to search clients..." />
+                <input value={walkinName}
+                  onChange={e => { setWalkinName(e.target.value); setWalkinClientId(null); searchClients(e.target.value) }}
+                  className="input" placeholder="Search or type name..." />
                 {clientSuggestions.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-40 overflow-y-auto">
                     {clientSuggestions.map(c => (
-                      <div key={c.id} className="px-3 py-2 hover:bg-bg-hover cursor-pointer" onMouseDown={() => { setWalkinName(c.name); setWalkinClientId(c.id); setClientSuggestions([]) }}>
+                      <div key={c.id} className="px-3 py-2 hover:bg-bg-hover cursor-pointer"
+                        onMouseDown={() => { setWalkinName(c.name); setWalkinClientId(c.id); setClientSuggestions([]) }}>
                         <p className="text-sm font-medium text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                       </div>
                     ))}
                   </div>
                 )}
+                {walkinClientId && <p className="text-xs text-emerald-400 mt-1">✓ Existing client found</p>}
               </div>
               <div>
                 <label className="label">Phone</label>
@@ -312,49 +413,45 @@ function ReceptionPageInner() {
             <div>
               <label className="label mb-2">Payment Method</label>
               <div className="flex gap-2">
-                {(['cash', 'card', 'eft'] as PaymentMethod[]).map(m => (
-                  <button key={m} onClick={() => setWalkinMethod(m)}
-                    className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-all ${walkinMethod === m ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'}`}>
-                    {m === 'cash' ? <Banknote className="w-4 h-4" /> : m === 'card' ? <CreditCard className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
-                    <span className="text-xs font-semibold capitalize">{m}</span>
-                  </button>
-                ))}
+                <MethodBtn method="cash" label="Cash" icon={Banknote} state={walkinMethod} setState={setWalkinMethod} />
+                <MethodBtn method="card" label="Card" icon={CreditCard} state={walkinMethod} setState={setWalkinMethod} />
+                <MethodBtn method="eft" label="EFT" icon={Building2} state={walkinMethod} setState={setWalkinMethod} />
               </div>
             </div>
             <div>
-              <label className="label">Note</label>
-              <input value={walkinNote} onChange={e => setWalkinNote(e.target.value)} className="input" placeholder="e.g. Business cards" />
+              <label className="label">Note (what did they pay for?)</label>
+              <input value={walkinNote} onChange={e => setWalkinNote(e.target.value)} className="input" placeholder="e.g. Business cards, Vehicle wrap deposit..." />
             </div>
             <button onClick={saveWalkin} disabled={isSavingWalkin || !walkinName || !walkinAmount} className="btn-primary w-full">
-              {isSavingWalkin ? <><span className="spinner w-4 h-4" /> Saving...</> : <><Plus className="w-4 h-4" /> Record Walk-in</>}
+              {isSavingWalkin ? <><span className="spinner w-4 h-4" /> Saving...</> : <><Plus className="w-4 h-4" /> Record Walk-in Payment</>}
             </button>
           </div>
         )}
-      </div>
 
-      {/* Walk-ins list */}
-      {tab === 'walkins_list' && (
-        <div className="space-y-3">
-          {walkins.length === 0 ? (
-            <div className="card py-12 text-center text-text-muted">No walk-in payments yet</div>
-          ) : walkins.map((w: any) => (
-            <div key={w.id} className="card p-4 border-l-4 border-blue-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-text-primary">{w.client_name}</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    {w.phone && <span className="text-xs text-text-muted">{w.phone}</span>}
-                    <span className="text-xs text-text-muted capitalize">{w.payment_method}</span>
-                    {w.note && <span className="text-xs text-text-muted">{w.note}</span>}
+        {/* WALK-IN LIST TAB */}
+        {tab === 'walkin_list' && (
+          <div className="space-y-3">
+            {walkinList.length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No walk-in payments yet</div>
+            ) : walkinList.map(w => (
+              <div key={w.id} className="card p-4 border-l-4 border-blue-500">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-xs text-accent">{w.job_number}</span>
+                      <span className="text-xs text-text-muted capitalize">{w.payment_method || 'cash'}</span>
+                    </div>
+                    <p className="font-semibold text-text-primary">{w.client_name}</p>
+                    {w.payment_note && <p className="text-xs text-text-muted mt-0.5">{w.payment_note}</p>}
+                    <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
                   </div>
-                  <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
+                  <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.total)}</p>
                 </div>
-                <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.amount)}</p>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Payment modal */}
       {payingItem && (
@@ -379,18 +476,14 @@ function ReceptionPageInner() {
               <div>
                 <label className="label mb-2">Method</label>
                 <div className="flex gap-2">
-                  {(['cash', 'card', 'eft'] as PaymentMethod[]).map(m => (
-                    <button key={m} onClick={() => setPayMethod(m)}
-                      className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border-2 transition-all ${payMethod === m ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'}`}>
-                      {m === 'cash' ? <Banknote className="w-4 h-4" /> : m === 'card' ? <CreditCard className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
-                      <span className="text-xs font-semibold capitalize">{m}</span>
-                    </button>
-                  ))}
+                  <MethodBtn method="cash" label="Cash" icon={Banknote} state={payMethod} setState={setPayMethod} />
+                  <MethodBtn method="card" label="Card" icon={CreditCard} state={payMethod} setState={setPayMethod} />
+                  <MethodBtn method="eft" label="EFT" icon={Building2} state={payMethod} setState={setPayMethod} />
                 </div>
               </div>
               <div>
                 <label className="label">Note</label>
-                <input value={payNote} onChange={e => setPayNote(e.target.value)} className="input" placeholder="Optional note" />
+                <input value={payNote} onChange={e => setPayNote(e.target.value)} className="input" placeholder="Optional" />
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setPayingItem(null)} className="btn-secondary flex-1">Cancel</button>
