@@ -120,7 +120,7 @@ function ReceptionPageInner() {
         title: '📦 Job Collected',
         message: `${item.client_name} collected ${item.job_number} — ${item.title}`,
         entity_type: 'job_card', entity_id: item.id,
-      }))
+      })))
     }
 
     toast.success(`✅ ${item.client_name} collected their order`)
