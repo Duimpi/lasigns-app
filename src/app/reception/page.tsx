@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'outstanding' | 'paid_today' | 'walkin'
+type Tab = 'outstanding' | 'paid_today' | 'walkin' | 'walkins_list'
 
 interface PayableItem {
   id: string
@@ -46,6 +46,8 @@ function ReceptionPageInner() {
   const [walkinNote, setWalkinNote] = useState('')
   const [isSavingWalkin, setIsSavingWalkin] = useState(false)
   const [walkins, setWalkins] = useState<any[]>([])
+  const [clientSuggestions, setClientSuggestions] = useState<any[]>([])
+  const [walkinClientId, setWalkinClientId] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -76,20 +78,12 @@ function ReceptionPageInner() {
       // Load walk-ins
       try {
         const { data: walkinData } = await supabase
-          .from('activity_logs')
-          .select('*')
-          .eq('entity_type', 'walkin_payment')
+          .from('job_cards')
+          .select('id, job_number, client_name, total, payment_method, payment_note, created_at')
+          .like('job_number', 'WI-%')
           .order('created_at', { ascending: false })
           .limit(50)
-        setWalkins((walkinData || []).map((w: any) => ({
-          id: w.id,
-          client_name: w.details?.client_name,
-          phone: w.details?.phone,
-          amount: w.details?.amount,
-          payment_method: w.details?.payment_method,
-          note: w.details?.note,
-          created_at: w.created_at,
-        })))
+        setWalkins(walkinData || [])
       } catch { setWalkins([]) }
     } finally { setIsLoading(false) }
   }
@@ -292,9 +286,19 @@ function ReceptionPageInner() {
               <p className="text-xs text-text-muted">For clients paying cash without a quote or job card</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
+              <div className="col-span-2 relative">
                 <label className="label">Client Name *</label>
-                <input value={walkinName} onChange={e => setWalkinName(e.target.value)} className="input" placeholder="Full name" />
+                <input value={walkinName} onChange={e => { setWalkinName(e.target.value); setWalkinClientId(null); searchClients(e.target.value) }} className="input" placeholder="Type name to search clients..." />
+                {clientSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-40 overflow-y-auto">
+                    {clientSuggestions.map(c => (
+                      <div key={c.id} className="px-3 py-2 hover:bg-bg-hover cursor-pointer" onMouseDown={() => { setWalkinName(c.name); setWalkinClientId(c.id); setClientSuggestions([]) }}>
+                        <p className="text-sm font-medium text-text-primary">{c.name}</p>
+                        {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="label">Phone</label>
