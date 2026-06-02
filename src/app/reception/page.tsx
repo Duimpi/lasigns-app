@@ -120,7 +120,7 @@ function ReceptionPageInner() {
         title: '📦 Job Collected',
         message: `${item.client_name} collected ${item.job_number} — ${item.title}`,
         entity_type: 'job_card', entity_id: item.id,
-      }))).catch(() => {})
+      }))
     }
 
     toast.success(`✅ ${item.client_name} collected their order`)
@@ -150,7 +150,7 @@ function ReceptionPageInner() {
           title: '💰 Payment Received',
           message: `${payingItem.client_name} paid ${formatCurrency(amount)} (${payMethod}) for ${payingItem.number}`,
           entity_type: payingItem.type, entity_id: payingItem.id,
-        }))).catch(() => {})
+        }))
       }
 
       toast.success(newStatus === 'paid' ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
@@ -188,7 +188,7 @@ function ReceptionPageInner() {
             if (walkinPhone) {
               await supabase.from('client_phones').insert({
                 client_id: clientId, phone: walkinPhone, is_primary: true
-              }).catch(() => {})
+              })
             }
           }
         }
@@ -221,7 +221,7 @@ function ReceptionPageInner() {
           title: '💰 Walk-in Payment',
           message: `${walkinName} paid ${formatCurrency(total)} (${walkinMethod}) — walk-in`,
           entity_type: 'job_card', entity_id: null,
-        }))).catch(() => {})
+        }))
       }
 
       toast.success(`Walk-in recorded — ${walkinName} paid ${formatCurrency(total)}`)
