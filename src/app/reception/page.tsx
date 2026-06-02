@@ -94,7 +94,7 @@ function ReceptionPageInner() {
       // Walk-in list from job_cards with WI- prefix
       const { data: wiData } = await supabase
         .from('job_cards')
-        .select('id, job_number, client_name, total, payment_method, payment_note, created_at')
+        .select('id, job_number, client_name, total, notes, created_at')
         .like('job_number', 'WI-%')
         .order('created_at', { ascending: false })
         .limit(50)
@@ -430,10 +430,13 @@ function ReceptionPageInner() {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-mono text-xs text-accent">{w.job_number}</span>
-                      <span className="text-xs text-text-muted capitalize">{w.payment_method || 'cash'}</span>
+                      {w.notes?.includes('Method: cash') && <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Cash</span>}
+                      {w.notes?.includes('Method: card') && <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-semibold">Card</span>}
+                      {w.notes?.includes('Method: eft') && <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold">EFT</span>}
+                      {!w.notes?.includes('Method:') && <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Cash</span>}
                     </div>
                     <p className="font-semibold text-text-primary">{w.client_name}</p>
-                    {w.payment_note && <p className="text-xs text-text-muted mt-0.5">{w.payment_note}</p>}
+                    {w.notes && <p className="text-xs text-text-muted mt-0.5">{w.notes.replace(/Walk-in \| Method: \w+ \| Amount: N\$[\d.]+/, '').trim() || w.notes}</p>}
                     <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
                   </div>
                   <p className="text-lg font-bold text-emerald-400">{formatCurrency(w.total)}</p>
