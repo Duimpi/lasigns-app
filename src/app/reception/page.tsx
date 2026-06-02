@@ -150,7 +150,7 @@ function ReceptionPageInner() {
           title: '💰 Payment Received',
           message: `${payingItem.client_name} paid ${formatCurrency(amount)} (${payMethod}) for ${payingItem.number}`,
           entity_type: payingItem.type, entity_id: payingItem.id,
-        }))
+        })))
       }
 
       toast.success(newStatus === 'paid' ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
@@ -221,7 +221,7 @@ function ReceptionPageInner() {
           title: '💰 Walk-in Payment',
           message: `${walkinName} paid ${formatCurrency(total)} (${walkinMethod}) — walk-in`,
           entity_type: 'job_card', entity_id: null,
-        }))
+        })))
       }
 
       toast.success(`Walk-in recorded — ${walkinName} paid ${formatCurrency(total)}`)
