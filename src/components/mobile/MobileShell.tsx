@@ -53,17 +53,14 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col max-w-md mx-auto relative">
-      {/* Status bar spacer */}
-      <div className="h-safe-top bg-bg-surface" />
-
+    <div className="min-h-screen min-h-dvh bg-bg flex flex-col w-full" style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
       {/* Content */}
       <main className="flex-1 overflow-y-auto pb-20">
         {children}
       </main>
 
       {/* Bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-bg-surface border-t border-border z-50">
+      <div className="fixed bottom-0 left-0 right-0 bg-bg-surface border-t border-border z-50">
         <div className="flex items-center">
           {NAV.map(item => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
@@ -89,8 +86,6 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
             <span className="text-[10px] font-semibold">Out</span>
           </button>
         </div>
-        {/* Home indicator */}
-        <div className="h-safe-bottom bg-bg-surface" />
       </div>
     </div>
   )
