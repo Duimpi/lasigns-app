@@ -10,21 +10,24 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-interface RetailJob {
-  id: string;
-  job_number: string;
-  branch_name: string;
-  retailer: string;
-  contact_name: string;
-  status: string;
-  items: LineItem[];
-  subtotal: number;
-  vat_amount: number;
-  total: number;
-  created_at: string;
-}
+// Retailer branches
+const RETAILER_BRANCHES: Record<string, string[]> = {
+  Shoprite: ['Shoprite Katutura', 'Shoprite Okuryangava', 'Shoprite Khomasdal', 'Shoprite Brakwater', 'Shoprite Ongwediva', 'Shoprite Rundu', 'Shoprite Katima Mulilo', 'Shoprite Otjiwarongo', 'Shoprite Gobabis', 'Shoprite Okahandja'],
+  Checkers: ['Checkers Grove Mall', 'Checkers Maerua Mall', 'Checkers Kleine Kuppe', 'Checkers Eros', 'Checkers Windhoek North'],
+  Usave: ['Usave Katutura', 'Usave Havana', 'Usave Okuryangava', 'Usave Wanaheda', 'Usave Ongwediva', 'Usave Rundu'],
+  'OK Foods': ['OK Foods Windhoek', 'OK Foods Swakopmund', 'OK Foods Walvis Bay', 'OK Foods Otjiwarongo'],
+  'Pick n Pay': ['Pick n Pay Grove', 'Pick n Pay Maerua', 'Pick n Pay Okuryangava'],
+  Spar: ['Spar Windhoek', 'Spar Swakopmund', 'Spar Walvis Bay'],
+  Other: ['Other Branch'],
+};
 
-const RETAILERS = ['Shoprite', 'Checkers', 'Usave', 'OK Foods', 'Pick n Pay', 'Spar', 'Other'];
+const RETAILERS = Object.keys(RETAILER_BRANCHES);
+
+const WORKERS = [
+  { id: 'nicole', name: 'Nicole' },
+  { id: 'geraldo', name: 'Geraldo' },
+  { id: 'bets-mari', name: 'Bets-Mari' },
+];
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -33,6 +36,22 @@ const STATUS_COLORS: Record<string, string> = {
   ready: 'bg-green-500/20 text-green-400 border-green-500/30',
   delivered: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
 };
+
+interface RetailJob {
+  id: string;
+  job_number: string;
+  branch_name: string;
+  retailer: string;
+  contact_name: string;
+  assigned_to: string;
+  status: string;
+  notes: string;
+  items: LineItem[];
+  subtotal: number;
+  vat_amount: number;
+  total: number;
+  created_at: string;
+}
 
 export default function RetailPage() {
   const [jobs, setJobs] = useState<RetailJob[]>([]);
@@ -43,15 +62,24 @@ export default function RetailPage() {
   const [filterRetailer, setFilterRetailer] = useState('all');
 
   const [form, setForm] = useState({
-    branch_name: '',
     retailer: 'Shoprite',
+    branch_name: '',
     contact_name: '',
+    assigned_to: '',
     status: 'pending',
+    notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem()]);
   const [saving, setSaving] = useState(false);
 
+  const branches = RETAILER_BRANCHES[form.retailer] || [];
+
   useEffect(() => { loadJobs(); }, []);
+
+  // Reset branch when retailer changes
+  useEffect(() => {
+    setForm(f => ({ ...f, branch_name: '' }));
+  }, [form.retailer]);
 
   async function loadJobs() {
     setLoading(true);
@@ -80,21 +108,35 @@ export default function RetailPage() {
 
   function openNew() {
     setEditJob(null);
-    setForm({ branch_name: '', retailer: 'Shoprite', contact_name: '', status: 'pending' });
+    setForm({ retailer: 'Shoprite', branch_name: '', contact_name: '', assigned_to: '', status: 'pending', notes: '' });
     setLineItems([createLineItem()]);
     setShowForm(true);
   }
 
   function openEdit(job: RetailJob) {
     setEditJob(job);
-    setForm({ branch_name: job.branch_name || '', retailer: job.retailer || 'Shoprite', contact_name: job.contact_name || '', status: job.status || 'pending' });
+    setForm({
+      retailer: job.retailer || 'Shoprite',
+      branch_name: job.branch_name || '',
+      contact_name: job.contact_name || '',
+      assigned_to: job.assigned_to || '',
+      status: job.status || 'pending',
+      notes: job.notes || '',
+    });
     setLineItems(job.items.length > 0 ? job.items : [createLineItem()]);
     setShowForm(true);
   }
 
   function openDuplicate(job: RetailJob) {
     setEditJob(null);
-    setForm({ branch_name: job.branch_name || '', retailer: job.retailer || 'Shoprite', contact_name: job.contact_name || '', status: 'pending' });
+    setForm({
+      retailer: job.retailer || 'Shoprite',
+      branch_name: job.branch_name || '',
+      contact_name: job.contact_name || '',
+      assigned_to: job.assigned_to || '',
+      status: 'pending',
+      notes: job.notes || '',
+    });
     setLineItems(job.items.map(i => ({ ...i, id: crypto.randomUUID() })));
     setShowForm(true);
   }
@@ -111,7 +153,9 @@ export default function RetailPage() {
         branch_name: form.branch_name,
         retailer: form.retailer,
         contact_name: form.contact_name,
+        assigned_to: form.assigned_to || null,
         status: form.status,
+        notes: form.notes,
         subtotal,
         vat_amount: vat,
         total,
@@ -147,9 +191,7 @@ export default function RetailPage() {
 
       setShowForm(false);
       loadJobs();
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSaving(false);
   }
 
@@ -203,13 +245,14 @@ export default function RetailPage() {
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-yellow-400 font-mono text-sm">{job.job_number}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 font-medium">{job.retailer}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>
-                        {job.status}
-                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>{job.status}</span>
                     </div>
                     <h3 className="text-white font-semibold mt-1">{job.branch_name}</h3>
                     {job.contact_name && <p className="text-gray-400 text-sm">{job.contact_name}</p>}
-                    {job.total > 0 && <p className="text-yellow-400 text-sm font-semibold mt-1">N${job.total?.toFixed(2)}</p>}
+                    <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                      {job.assigned_to && <span>Worker: {WORKERS.find(w => w.id === job.assigned_to)?.name || job.assigned_to}</span>}
+                      {job.total > 0 && <span className="text-yellow-400 font-semibold">N${job.total?.toFixed(2)}</span>}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
                     <button onClick={() => openDuplicate(job)} title="Duplicate" className="p-2 text-gray-400 hover:text-blue-400 transition-colors">
@@ -241,6 +284,7 @@ export default function RetailPage() {
             </div>
 
             <div className="p-6 space-y-4">
+              {/* Retailer + Branch */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Retailer</label>
@@ -250,19 +294,38 @@ export default function RetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Branch Name</label>
-                  <input value={form.branch_name} onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
-                    placeholder="e.g. Shoprite Katutura"
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Branch</label>
+                  <select value={form.branch_name} onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                    <option value="">— Select Branch —</option>
+                    {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                    <option value="__custom__">Other (type below)</option>
+                  </select>
+                  {form.branch_name === '__custom__' && (
+                    <input
+                      placeholder="Type branch name..."
+                      onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
+                      className="mt-2 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
+                    />
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Contact + Worker + Status */}
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Contact Name</label>
                   <input value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
                     placeholder="Contact person"
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Assigned Worker</label>
+                  <select value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                    <option value="">— Unassigned —</option>
+                    {WORKERS.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
@@ -277,14 +340,19 @@ export default function RetailPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
+                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2} placeholder="Internal notes..."
+                  className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 resize-none" />
+              </div>
+
               {/* Line Items */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
                   <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])}
-                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">
-                    + Add Item
-                  </button>
+                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">+ Add Item</button>
                 </div>
                 <div className="bg-gray-800 border border-gray-700 rounded-xl p-3">
                   <SmartLineItemHeader />
@@ -294,26 +362,17 @@ export default function RetailPage() {
                       onRemove={(id) => setLineItems(items => items.filter(i => i.id !== id))} />
                   ))}
                 </div>
-
-                <div className="mt-3 space-y-1 text-sm text-right">
-                  <div className="flex justify-between text-gray-400">
-                    <span>Subtotal</span><span>N${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-400">
-                    <span>VAT (15%)</span><span>N${vat.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2">
-                    <span>TOTAL</span><span>N${total.toFixed(2)}</span>
-                  </div>
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="flex justify-between text-gray-400"><span>Subtotal</span><span>N${subtotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-gray-400"><span>VAT (15%)</span><span>N${vat.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2"><span>TOTAL</span><span>N${total.toFixed(2)}</span></div>
                 </div>
               </div>
             </div>
 
             <div className="flex gap-3 p-6 border-t border-gray-700">
               <button onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
-                Cancel
-              </button>
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
                 className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving...' : editJob ? 'Save Changes' : 'Create Retail Job'}

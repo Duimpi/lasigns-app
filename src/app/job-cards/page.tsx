@@ -39,7 +39,11 @@ const STATUS_COLORS: Record<string, string> = {
 export default function JobCardsPage() {
   const [jobs, setJobs] = useState<JobCard[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
-  const [staff, setStaff] = useState<{ id: string; full_name: string }[]>([]);
+  const WORKERS = [
+    { id: 'nicole', name: 'Nicole' },
+    { id: 'geraldo', name: 'Geraldo' },
+    { id: 'bets-mari', name: 'Bets-Mari' },
+  ];
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editJob, setEditJob] = useState<JobCard | null>(null);
@@ -65,7 +69,7 @@ export default function JobCardsPage() {
   useEffect(() => {
     loadJobs();
     loadClients();
-    loadStaff();
+    
   }, []);
 
   async function loadJobs() {
@@ -96,11 +100,6 @@ export default function JobCardsPage() {
   async function loadClients() {
     const { data } = await supabase.from('clients').select('id, name').order('name');
     if (data) setClients(data);
-  }
-
-  async function loadStaff() {
-    const { data } = await supabase.from('profiles').select('id, full_name').order('full_name');
-    if (data) setStaff(data);
   }
 
   function openNew() {
@@ -286,7 +285,7 @@ export default function JobCardsPage() {
                     {job.description && <p className="text-gray-500 text-xs mt-1 line-clamp-1">{job.description}</p>}
                     <div className="flex gap-4 mt-2 text-xs text-gray-500">
                       {job.due_date && <span>Due: {new Date(job.due_date).toLocaleDateString()}</span>}
-                      {job.assigned_to && <span>Worker: {staff.find(s => s.id === job.assigned_to)?.full_name || job.assigned_to}</span>}
+                      {job.assigned_to && <span>Worker: {WORKERS.find(w => w.id === job.assigned_to)?.name || job.assigned_to}</span>}
                       {job.total > 0 && <span className="text-yellow-400 font-semibold">N${job.total?.toFixed(2)}</span>}
                     </div>
                   </div>
@@ -364,7 +363,7 @@ export default function JobCardsPage() {
                   <select value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
                     <option value="">— Unassigned —</option>
-                    {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                    {WORKERS.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
               </div>

@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PRICE_ITEMS, PriceItem } from '@/data/priceData';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 export interface LineItem {
   id: string;
   description: string;
@@ -23,7 +22,6 @@ interface SmartLineItemProps {
   onRemove: (id: string) => void;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function calcSqm(wMm: string, hMm: string): number | null {
   const w = parseFloat(wMm);
   const h = parseFloat(hMm);
@@ -53,7 +51,6 @@ function searchItems(query: string): PriceItem[] {
   ).slice(0, 12);
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItemProps) {
   const [query, setQuery] = useState(item.description);
   const [results, setResults] = useState<PriceItem[]>([]);
@@ -62,13 +59,16 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Keep query in sync when item.description changes externally
+  useEffect(() => {
+    setQuery(item.description);
+  }, [item.description]);
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(e.target as Node)
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+        inputRef.current && !inputRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
       }
@@ -87,7 +87,7 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
       const updated: LineItem = {
         ...item,
         description: val,
-        priceType: item.priceType === 'psm' || item.priceType === 'fixed' ? 'manual' : item.priceType,
+        priceType: 'manual',
       };
       onChange(item.id, { ...updated, total: calcTotal(updated) });
     },
@@ -98,6 +98,7 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
     (priceItem: PriceItem) => {
       setQuery(priceItem.label);
       setOpen(false);
+      setResults([]);
       const updated: LineItem = {
         ...item,
         description: priceItem.label,
@@ -126,7 +127,7 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
   const handlePriceChange = useCallback(
     (val: string) => {
       const price = parseFloat(val) || null;
-      const updated: LineItem = { ...item, unitPrice: price, priceType: 'manual' };
+      const updated: LineItem = { ...item, unitPrice: price, priceType: item.priceType === 'psm' ? 'psm' : 'manual' };
       updated.total = calcTotal(updated);
       onChange(item.id, updated);
     },
@@ -145,27 +146,19 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlighted((h) => Math.min(h + 1, results.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlighted((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (results[highlighted]) handleSelect(results[highlighted]);
-    } else if (e.key === 'Escape') {
-      setOpen(false);
-    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, results.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(h => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (results[highlighted]) handleSelect(results[highlighted]); }
+    else if (e.key === 'Escape') { setOpen(false); }
   };
 
   const sqmDisplay = item.sqm != null ? item.sqm.toFixed(4) : '—';
   const totalDisplay = item.total > 0 ? `N$${item.total.toFixed(2)}` : '—';
 
   return (
-    <div className="relative grid grid-cols-12 gap-2 items-start py-2 border-b border-gray-100 last:border-0">
+    <div className="relative grid grid-cols-12 gap-2 items-start py-2 border-b border-gray-700 last:border-0">
       <div className="col-span-1 flex items-center justify-center pt-2">
-        <span className="text-xs text-gray-400 font-mono">{index + 1}</span>
+        <span className="text-xs text-gray-500 font-mono">{index + 1}</span>
       </div>
 
       <div className="col-span-4 relative">
@@ -175,8 +168,7 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
           value={query}
           onChange={(e) => handleDescriptionChange(e.target.value)}
           onFocus={() => {
-            if (results.length > 0) setOpen(true);
-            else if (query.length >= 2) {
+            if (query.length >= 2) {
               const found = searchItems(query);
               setResults(found);
               setOpen(found.length > 0);
@@ -184,33 +176,21 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
           }}
           onKeyDown={handleKeyDown}
           placeholder="Type to search items…"
-          className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full text-sm bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent placeholder-gray-500"
         />
         {open && results.length > 0 && (
-          <div
-            ref={dropdownRef}
-            className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-64 overflow-y-auto"
-          >
+          <div ref={dropdownRef} className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-h-64 overflow-y-auto">
             {results.map((r, i) => (
-              <button
-                key={r.id}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleSelect(r);
-                }}
-                className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-50 last:border-0 ${
-                  i === highlighted ? 'bg-blue-50' : ''
-                }`}
+              <button key={r.id} type="button"
+                onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
+                className={`w-full text-left px-3 py-2 text-xs border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors ${i === highlighted ? 'bg-gray-700' : ''}`}
               >
-                <div className="font-medium text-gray-800 truncate">{r.label}</div>
+                <div className="font-medium text-white truncate">{r.label}</div>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold ${
-                    r.priceType === 'psm' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'
-                  }`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold ${r.priceType === 'psm' ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'}`}>
                     N${r.price.toFixed(2)} {r.priceType === 'psm' ? '/m²' : 'fixed'}
                   </span>
-                  {r.category && <span className="text-gray-400">{r.category}</span>}
+                  <span className="text-gray-400">{r.category}</span>
                 </div>
               </button>
             ))}
@@ -221,55 +201,55 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
       <div className="col-span-1">
         <input type="number" value={item.widthMm}
           onChange={(e) => handleSizeChange('widthMm', e.target.value)}
-          placeholder="W mm"
-          className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="W"
+          className="w-full text-sm bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
         />
       </div>
 
       <div className="col-span-1">
         <input type="number" value={item.heightMm}
           onChange={(e) => handleSizeChange('heightMm', e.target.value)}
-          placeholder="H mm"
-          className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="H"
+          className="w-full text-sm bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
         />
       </div>
 
       <div className="col-span-1 flex items-center justify-center pt-2">
-        <span className={`text-xs font-mono ${item.sqm ? 'text-blue-600 font-semibold' : 'text-gray-300'}`}>
+        <span className={`text-xs font-mono ${item.sqm ? 'text-yellow-400 font-semibold' : 'text-gray-600'}`}>
           {sqmDisplay}
         </span>
       </div>
 
       <div className="col-span-1">
         <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">N$</span>
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">N$</span>
           <input type="number" step="0.01" value={item.unitPrice ?? ''}
             onChange={(e) => handlePriceChange(e.target.value)}
             placeholder="0.00"
-            className="w-full text-sm border border-gray-200 rounded pl-6 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full text-sm bg-gray-700 border border-gray-600 text-white rounded pl-6 pr-1 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
           />
         </div>
         {item.priceType === 'psm' && (
-          <div className="text-[10px] text-orange-500 mt-0.5 text-center">per m²</div>
+          <div className="text-[10px] text-orange-400 mt-0.5 text-center">per m²</div>
         )}
       </div>
 
       <div className="col-span-1">
         <input type="number" min="1" value={item.qty}
           onChange={(e) => handleQtyChange(e.target.value)}
-          className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full text-sm bg-gray-700 border border-gray-600 text-white rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500"
         />
       </div>
 
       <div className="col-span-1 flex items-center justify-end pt-2">
-        <span className={`text-sm font-semibold font-mono ${item.total > 0 ? 'text-gray-800' : 'text-gray-300'}`}>
+        <span className={`text-sm font-semibold font-mono ${item.total > 0 ? 'text-white' : 'text-gray-600'}`}>
           {totalDisplay}
         </span>
       </div>
 
       <div className="col-span-1 flex items-center justify-center pt-1">
         <button type="button" onClick={() => onRemove(item.id)}
-          className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded" title="Remove line">
+          className="p-1 text-gray-600 hover:text-red-400 transition-colors rounded">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -281,7 +261,7 @@ export function SmartLineItem({ item, index, onChange, onRemove }: SmartLineItem
 
 export function SmartLineItemHeader() {
   return (
-    <div className="grid grid-cols-12 gap-2 px-0 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-200">
+    <div className="grid grid-cols-12 gap-2 px-0 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-600 mb-1">
       <div className="col-span-1 text-center">#</div>
       <div className="col-span-4">Description</div>
       <div className="col-span-1">W (mm)</div>
