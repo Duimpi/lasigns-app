@@ -183,14 +183,47 @@ export function SmartLineItem({ index, item, onChange, onRemove, showRemove }: P
           )}
         </div>
 
-        {/* Size field */}
+        {/* Size field - auto calculates */}
         <div className="col-span-2">
           <input
             value={item.size}
-            onChange={e => onChange(index, 'size', e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              onChange(index, 'size', val)
+              // Auto-calculate if we have a selected rate with sqm unit
+              if (selectedRate && selectedRate.unit === 'sqm') {
+                // Parse formats: 1.2x0.6, 1200x600, 1.2×0.6, 1200x600mm
+                const clean = val.replace(/mm/gi, '').replace(/×/g, 'x').replace(/\s/g, '')
+                const match = clean.match(/^([0-9.]+)[x×*,]([0-9.]+)$/i)
+                if (match) {
+                  let w = parseFloat(match[1])
+                  let h = parseFloat(match[2])
+                  // If values look like mm (over 10), convert to meters
+                  if (w > 10) w = w / 1000
+                  if (h > 10) h = h / 1000
+                  const sqm = w * h
+                  if (sqm > 0) {
+                    onChange(index, 'unit_price', parseFloat((sqm * selectedRate.price_per_unit).toFixed(2)))
+                  }
+                }
+              }
+            }}
             className="input text-sm"
-            placeholder="e.g. 1.2×0.6m"
+            placeholder="e.g. 1.2x0.6"
           />
+          {selectedRate?.unit === 'sqm' && item.size && (() => {
+            const clean = item.size.replace(/mm/gi, '').replace(/×/g, 'x').replace(/\s/g, '')
+            const match = clean.match(/^([0-9.]+)[x×*,]([0-9.]+)$/i)
+            if (match) {
+              let w = parseFloat(match[1])
+              let h = parseFloat(match[2])
+              if (w > 10) w = w / 1000
+              if (h > 10) h = h / 1000
+              const sqm = w * h
+              if (sqm > 0) return <p className="text-[10px] text-accent mt-0.5">{sqm.toFixed(3)} sqm</p>
+            }
+            return null
+          })()}
         </div>
 
         {/* Qty */}
