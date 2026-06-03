@@ -527,36 +527,21 @@ function QuotesPageInner() {
             </div>
 
             <div className="space-y-2">
-              {itemFields.map((field, i) => {
-                const qty = Number(watchItems?.[i]?.quantity) || 0
-                const price = Number(watchItems?.[i]?.unit_price) || 0
-                return (
-                  <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-5">
-                      <input {...register(`items.${i}.description`)} className="input" placeholder="Description" />
-                    </div>
-                    <div className="col-span-2">
-                      <input {...register(`items.${i}.size`)} className="input" placeholder="e.g. 1200×600mm" />
-                    </div>
-                    <div className="col-span-1">
-                      <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
-                    </div>
-                    <div className="col-span-2">
-                      <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
-                    </div>
-                    <div className="col-span-1 text-right text-sm font-semibold text-text-primary">
-                      {formatCurrency(qty * price)}
-                    </div>
-                    <div className="col-span-1 flex justify-end">
-                      {itemFields.length > 1 && (
-                        <button type="button" onClick={() => removeItem(i)} className="btn-icon text-red-400/50 hover:text-red-400">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+              {itemFields.map((field, i) => (
+                <SmartLineItem
+                  key={field.id}
+                  index={i}
+                  item={{
+                    description: watchItems?.[i]?.description || '',
+                    size: watchItems?.[i]?.size || '',
+                    quantity: Number(watchItems?.[i]?.quantity) || 1,
+                    unit_price: Number(watchItems?.[i]?.unit_price) || 0,
+                  }}
+                  onChange={(idx, fieldName, value) => setValue(`items.${idx}.${fieldName}` as any, value)}
+                  onRemove={(idx) => removeItem(idx)}
+                  showRemove={itemFields.length > 1}
+                />
+              ))}
             </div>
 
             {/* Totals */}
