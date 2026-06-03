@@ -1,216 +1,231 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { MobileShell } from '@/components/mobile/MobileShell'
 import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
-import { formatTimeAgo } from '@/lib/utils'
-import { ChevronLeft, Send, MessageSquare, Users } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { PackageCheck, Banknote, CreditCard, Building2, Plus, X, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-export default function MobileMessages() {
+type Tab = 'collection' | 'walkin' | 'walkin_list'
+type Method = 'cash' | 'card' | 'eft'
+
+export default function MobileReception() {
   const { profile } = useAuthStore()
-  const [view, setView] = useState<'list'|'chat'|'team'>('list')
-  const [chats, setChats] = useState<any[]>([])
-  const [profiles, setProfiles] = useState<any[]>([])
-  const [activeChat, setActiveChat] = useState<any>(null)
-  const [messages, setMessages] = useState<any[]>([])
-  const [newMsg, setNewMsg] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [tab, setTab] = useState<Tab>('collection')
+  const [collections, setCollections] = useState<any[]>([])
+  const [walkins, setWalkins] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    loadChats()
-    loadProfiles()
-    const channel = supabase.channel('mobile-msgs')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, loadChats)
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
+  // Walk-in form
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState<Method>('cash')
+  const [note, setNote] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [suggestions, setSuggestions] = useState<any[]>([])
+  const [clientId, setClientId] = useState<string|null>(null)
 
-  useEffect(() => {
-    if (activeChat) loadMessages(activeChat.id)
-  }, [activeChat])
+  useEffect(() => { loadData() }, [])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  async function loadChats() {
-    if (!profile) return
-    const { data } = await supabase.from('chats')
-      .select('*, members:chat_members(*, profile:profiles(*))')
-      .order('updated_at', { ascending: false })
-    const mine = ((data as any[]) || []).filter(c => c.members?.some((m: any) => m.profile_id === profile.id))
-    setChats(mine)
+  async function loadData() {
+    setIsLoading(true)
+    const [{ data: coll }, { data: wi }] = await Promise.all([
+      supabase.from('job_cards').select('id, job_number, title, client_name, total, status')
+        .eq('status', 'completed').not('job_number', 'like', 'WI-%').order('created_at', { ascending: false }),
+      supabase.from('job_cards').select('id, job_number, client_name, total, notes, created_at')
+        .like('job_number', 'WI-%').order('created_at', { ascending: false }).limit(30),
+    ])
+    setCollections(coll || [])
+    setWalkins(wi || [])
+    setIsLoading(false)
   }
 
-  async function loadProfiles() {
-    const { data } = await supabase.from('profiles').select('*').order('full_name')
-    setProfiles((data || []).filter((p: any) => p.id !== profile?.id))
-  }
-
-  async function loadMessages(chatId: string) {
-    const { data } = await supabase.from('chat_messages')
-      .select('*, sender:profiles!sender_id(id, full_name)')
-      .eq('chat_id', chatId).eq('is_deleted', false)
-      .order('created_at', { ascending: true }).limit(80)
-    setMessages(data || [])
-    // Mark read
-    await supabase.from('chat_members').update({ last_read_at: new Date().toISOString() })
-      .eq('chat_id', chatId).eq('profile_id', profile!.id)
-  }
-
-  async function startChat(target: any) {
-    if (!profile) return
-    const existing = chats.find(c =>
-      c.type === 'direct' &&
-      c.members?.some((m: any) => m.profile_id === profile.id) &&
-      c.members?.some((m: any) => m.profile_id === target.id)
-    )
-    if (existing) { setActiveChat(existing); setView('chat'); return }
-
-    const { data: chat } = await supabase.from('chats')
-      .insert({ type: 'direct', created_by: profile.id }).select().single()
-    if (chat) {
-      await supabase.from('chat_members').insert([
-        { chat_id: chat.id, profile_id: profile.id },
-        { chat_id: chat.id, profile_id: target.id },
-      ])
-      await loadChats()
-      setActiveChat({ ...chat, members: [
-        { profile_id: profile.id, profile: { full_name: profile.full_name } },
-        { profile_id: target.id, profile: { full_name: target.full_name } },
-      ]})
-      setView('chat')
+  async function markCollected(item: any) {
+    const { error } = await supabase.from('job_cards').update({ status: 'delivered' }).eq('id', item.id)
+    if (error) { toast.error('Failed'); return }
+    const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
+    if (admins && profile) {
+      await supabase.from('notifications').insert(admins.map((a: any) => ({
+        recipient_id: a.id, sender_id: profile.id, type: 'job_collected',
+        title: '📦 Job Collected',
+        message: `${item.client_name} collected ${item.job_number}`,
+        entity_type: 'job_card', entity_id: item.id,
+      })))
     }
+    toast.success(`✅ Marked as collected`)
+    loadData()
   }
 
-  async function sendMessage() {
-    if (!newMsg.trim() || !activeChat || !profile) return
-    setIsSending(true)
-    const { error } = await supabase.from('chat_messages').insert({
-      chat_id: activeChat.id, sender_id: profile.id,
-      content: newMsg.trim(), message_type: 'text',
-    })
-    if (error) { toast.error('Failed to send'); setIsSending(false); return }
-    await supabase.from('chats').update({ updated_at: new Date().toISOString() }).eq('id', activeChat.id)
-    setNewMsg('')
-    loadMessages(activeChat.id)
-    setIsSending(false)
+  async function searchClients(val: string) {
+    if (val.length < 2) { setSuggestions([]); return }
+    const { data } = await supabase.from('clients').select('id, name').ilike('name', `%${val}%`).limit(5)
+    setSuggestions(data || [])
   }
 
-  function getChatName(chat: any) {
-    if (chat.name) return chat.name
-    if (chat.type === 'direct' && profile) {
-      const other = chat.members?.find((m: any) => m.profile_id !== profile.id)
-      return other?.profile?.full_name || 'Chat'
-    }
-    return 'Group'
-  }
-
-  // Chat view
-  if (view === 'chat' && activeChat) {
-    return (
-      <MobileShell>
-        <div className="flex flex-col h-screen">
-          {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-4 bg-bg-surface border-b border-border">
-            <button onClick={() => { setView('list'); setActiveChat(null) }} className="text-accent">
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <div className="w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center font-bold text-accent">
-              {getChatName(activeChat)[0]}
-            </div>
-            <p className="font-semibold text-text-primary">{getChatName(activeChat)}</p>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-24">
-            {messages.map(msg => {
-              const isOwn = msg.sender_id === profile?.id
-              return (
-                <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-                    {!isOwn && <p className="text-xs text-accent font-semibold px-1">{msg.sender?.full_name}</p>}
-                    <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      isOwn ? 'bg-accent text-text-inverse rounded-br-sm' : 'bg-bg-surface border border-border text-text-primary rounded-bl-sm'
-                    }`}>{msg.content}</div>
-                    <p className="text-[10px] text-text-muted px-1">{formatTimeAgo(msg.created_at)}</p>
-                  </div>
-                </div>
-              )
-            })}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input - fixed at bottom */}
-          <div className="fixed bottom-16 left-0 right-0 max-w-md mx-auto px-4 py-3 bg-bg-surface border-t border-border">
-            <div className="flex gap-2">
-              <input value={newMsg} onChange={e => setNewMsg(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') sendMessage() }}
-                className="input flex-1 rounded-full" placeholder="Message..." />
-              <button onClick={sendMessage} disabled={isSending || !newMsg.trim()}
-                className="w-11 h-11 bg-accent rounded-full flex items-center justify-center shrink-0 active:scale-95 transition-transform">
-                <Send className="w-4 h-4 text-text-inverse" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </MobileShell>
-    )
+  async function saveWalkin() {
+    if (!name.trim() || !amount) return
+    setIsSaving(true)
+    try {
+      const total = parseFloat(amount)
+      let cId = clientId
+      if (!cId) {
+        const { data: existing } = await supabase.from('clients').select('id').ilike('name', name.trim()).limit(1)
+        if (existing && existing.length > 0) {
+          cId = existing[0].id
+        } else {
+          const { data: nc } = await supabase.from('clients').insert({ name: name.trim(), created_by: profile?.id }).select('id').single()
+          if (nc) {
+            cId = nc.id
+            if (phone) await supabase.from('client_phones').insert({ client_id: cId, phone, is_primary: true })
+          }
+        }
+      }
+      const year = new Date().getFullYear()
+      const rand = Math.floor(Math.random() * 9000) + 1000
+      const { error } = await supabase.from('job_cards').insert({
+        job_number: `WI-${rand}-${year}`,
+        title: note ? `Walk-in: ${note}` : 'Walk-in Payment',
+        client_name: name.trim(), client_id: cId,
+        status: 'delivered', priority: 'normal', is_retail: false,
+        total, subtotal: parseFloat((total/1.15).toFixed(2)),
+        vat_amount: parseFloat((total - total/1.15).toFixed(2)), vat_rate: 15,
+        notes: `Walk-in | Method: ${method} | Amount: N$${total}${note ? ' | Note: ' + note : ''}`,
+        created_by: profile?.id,
+      })
+      if (error) throw error
+      toast.success(`Walk-in saved — ${formatCurrency(total)}`)
+      setName(''); setPhone(''); setAmount(''); setNote(''); setClientId(null); setSuggestions([])
+      loadData()
+    } catch (err: any) { toast.error(`Failed: ${err.message}`) }
+    finally { setIsSaving(false) }
   }
 
   return (
     <MobileShell>
       <div className="px-4 pt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-text-primary">Messages</h1>
-          <button onClick={() => setView(view === 'team' ? 'list' : 'team')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm font-semibold text-text-secondary">
-            <Users className="w-4 h-4" />
-            {view === 'team' ? 'Chats' : 'Team'}
-          </button>
+        <h1 className="text-2xl font-bold text-text-primary mb-4">Reception</h1>
+
+        {/* Tabs */}
+        <div className="flex gap-1 bg-bg-elevated rounded-xl p-1 mb-4">
+          {[
+            { key: 'collection', label: `📦 Collect (${collections.length})` },
+            { key: 'walkin', label: '+ Walk-in' },
+            { key: 'walkin_list', label: `List (${walkins.length})` },
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key as Tab)}
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${tab === t.key ? 'bg-accent text-text-inverse' : 'text-text-muted'}`}>
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Team list */}
-        {view === 'team' && (
-          <div className="space-y-2">
-            <p className="text-xs text-text-muted mb-3">Tap a name to start a message</p>
-            {profiles.map(p => (
-              <div key={p.id} onClick={() => startChat(p)}
-                className="flex items-center gap-3 bg-bg-surface border border-border rounded-2xl p-4 active:scale-[0.98] transition-transform cursor-pointer">
-                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold ${p.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-blue-500/20 text-blue-300'}`}>
-                  {p.full_name[0]}
+        {/* Collections */}
+        {tab === 'collection' && (
+          <div className="space-y-3">
+            {isLoading ? [1,2].map(i => <div key={i} className="h-20 bg-bg-elevated rounded-2xl animate-pulse" />) :
+              collections.length === 0 ? (
+                <div className="bg-bg-surface border border-border rounded-2xl p-8 text-center">
+                  <PackageCheck className="w-10 h-10 text-emerald-400 mx-auto mb-2 opacity-50" />
+                  <p className="text-text-muted text-sm">Nothing waiting for collection</p>
                 </div>
-                <div>
-                  <p className="font-semibold text-text-primary">{p.full_name}</p>
-                  <p className="text-xs text-text-muted capitalize">{p.role}</p>
+              ) : collections.map(item => (
+                <div key={item.id} className="bg-bg-surface border border-border rounded-2xl p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
+                      <p className="text-xs text-accent font-mono">{item.job_number}</p>
+                      <p className="text-xs text-text-muted mt-0.5 truncate">{item.title}</p>
+                      <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
+                    </div>
+                    <button onClick={() => markCollected(item)}
+                      className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs font-semibold active:scale-95 transition-transform shrink-0">
+                      ✓ Collected
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         )}
 
-        {/* Chats list */}
-        {view === 'list' && (
-          <div className="space-y-2">
-            {chats.length === 0 ? (
-              <div className="bg-bg-surface border border-border rounded-2xl p-8 text-center">
-                <MessageSquare className="w-10 h-10 text-text-muted mx-auto mb-3 opacity-30" />
-                <p className="text-text-muted text-sm mb-2">No chats yet</p>
-                <button onClick={() => setView('team')} className="text-accent text-sm font-semibold">
-                  Message a team member →
-                </button>
-              </div>
-            ) : chats.map(chat => (
-              <div key={chat.id} onClick={() => { setActiveChat(chat); setView('chat') }}
-                className="flex items-center gap-3 bg-bg-surface border border-border rounded-2xl p-4 active:scale-[0.98] transition-transform cursor-pointer">
-                <div className="w-11 h-11 rounded-full bg-accent/20 flex items-center justify-center text-lg font-bold text-accent">
-                  {getChatName(chat)[0]}
+        {/* Walk-in form */}
+        {tab === 'walkin' && (
+          <div className="space-y-4">
+            <div className="relative">
+              <label className="label">Client Name *</label>
+              <input value={name} onChange={e => { setName(e.target.value); setClientId(null); searchClients(e.target.value) }}
+                className="input" placeholder="Search or type name..." />
+              {clientId && <p className="text-xs text-emerald-400 mt-1">✓ Existing client</p>}
+              {suggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-xl shadow-elevated mt-1">
+                  {suggestions.map(c => (
+                    <div key={c.id} className="px-3 py-3 hover:bg-bg-hover cursor-pointer border-b border-border/30 last:border-0"
+                      onMouseDown={() => { setName(c.name); setClientId(c.id); setSuggestions([]) }}>
+                      <p className="text-sm font-medium text-text-primary">{c.name}</p>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-text-primary">{getChatName(chat)}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="label">Phone</label>
+              <input value={phone} onChange={e => setPhone(e.target.value)} className="input" placeholder="081 234 5678" type="tel" />
+            </div>
+
+            <div>
+              <label className="label">Amount *</label>
+              <input value={amount} onChange={e => setAmount(e.target.value)} className="input text-xl font-bold" placeholder="0.00" type="number" step="0.01" inputMode="decimal" />
+            </div>
+
+            <div>
+              <label className="label mb-2">Payment Method</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['cash','card','eft'] as Method[]).map(m => (
+                  <button key={m} onClick={() => setMethod(m)}
+                    className={`flex flex-col items-center gap-2 py-4 rounded-2xl border-2 transition-all active:scale-95 ${method === m ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary'}`}>
+                    {m === 'cash' ? <Banknote className="w-6 h-6" /> : m === 'card' ? <CreditCard className="w-6 h-6" /> : <Building2 className="w-6 h-6" />}
+                    <span className="text-sm font-semibold capitalize">{m}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="label">What did they pay for?</label>
+              <input value={note} onChange={e => setNote(e.target.value)} className="input" placeholder="e.g. Business cards, Vehicle wrap..." />
+            </div>
+
+            <button onClick={saveWalkin} disabled={isSaving || !name || !amount}
+              className="btn-primary w-full py-4 text-base rounded-2xl">
+              {isSaving ? <><span className="spinner w-5 h-5" /> Saving...</> : <><Plus className="w-5 h-5" /> Record Walk-in</>}
+            </button>
+          </div>
+        )}
+
+        {/* Walk-in list */}
+        {tab === 'walkin_list' && (
+          <div className="space-y-3">
+            {walkins.length === 0 ? (
+              <div className="bg-bg-surface border border-border rounded-2xl p-8 text-center">
+                <p className="text-text-muted text-sm">No walk-in payments yet</p>
+              </div>
+            ) : walkins.map(w => (
+              <div key={w.id} className="bg-bg-surface border border-blue-500/30 border-l-4 border-l-blue-500 rounded-2xl p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="font-semibold text-text-primary">{w.client_name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="font-mono text-xs text-accent">{w.job_number}</span>
+                      {w.notes?.includes('Method: cash') && <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">Cash</span>}
+                      {w.notes?.includes('Method: card') && <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold">Card</span>}
+                      {w.notes?.includes('Method: eft') && <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-semibold">EFT</span>}
+                    </div>
+                    <p className="text-[11px] text-text-muted mt-1">{new Date(w.created_at).toLocaleString()}</p>
+                  </div>
+                  <p className="text-xl font-bold text-emerald-400">{formatCurrency(w.total)}</p>
                 </div>
               </div>
             ))}
