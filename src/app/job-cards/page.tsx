@@ -335,6 +335,56 @@ function JobCardsPageInner() {
     finally { setIsDeleting(false) }
   }
 
+  async function duplicateJob(job: JobCard) {
+    const { data: original } = await supabase
+      .from('job_cards')
+      .select('*, items:job_card_items(*)')
+      .eq('id', job.id).single()
+    if (!original) return
+
+    const year = new Date().getFullYear()
+    const { data: numData } = await supabase.rpc('get_next_job_number', { year_param: year })
+    const jobNumber = numData || `LA-J${Date.now()}`
+
+    const { data: newJob, error } = await supabase.from('job_cards').insert({
+      job_number: jobNumber,
+      title: `${original.title} (Copy)`,
+      client_id: original.client_id,
+      client_name: original.client_name,
+      description: original.description,
+      notes: original.notes,
+      status: 'pending',
+      priority: original.priority,
+      assigned_worker: original.assigned_worker,
+      is_retail: original.is_retail,
+      subtotal: original.subtotal,
+      vat_rate: original.vat_rate,
+      vat_amount: original.vat_amount,
+      total: original.total,
+      created_by: profile?.id,
+    }).select().single()
+
+    if (error) { toast.error('Failed to duplicate'); return }
+
+    // Copy items
+    if (original.items?.length > 0) {
+      await supabase.from('job_card_items').insert(
+        original.items.map((item: any) => ({
+          job_card_id: newJob.id,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total: item.total,
+          width: item.width,
+          height: item.height,
+        }))
+      )
+    }
+
+    toast.success('Job card duplicated!')
+    loadJobs()
+  }
+
   async function sendComment() {
     if (!newComment.trim() || !profile || !editingJob) return
     setIsSendingComment(true)

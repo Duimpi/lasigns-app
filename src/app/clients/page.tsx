@@ -34,7 +34,7 @@ const clientSchema = z.object({
 
 type ClientFormData = z.infer<typeof clientSchema>
 
-interface ClientWithContact extends Omit<Client, 'phones' | 'emails'> {
+interface ClientWithContact extends Client {
   phones: { id: string; phone: string; label?: string; is_primary: boolean }[]
   emails: { id: string; email: string; label?: string; is_primary: boolean }[]
 }
@@ -45,6 +45,10 @@ export default function ClientsPage() {
   const [filtered, setFiltered] = useState<ClientWithContact[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [historyClient, setHistoryClient] = useState<Client | null>(null)
+  const [clientJobs, setClientJobs] = useState<any[]>([])
+  const [clientQuotes, setClientQuotes] = useState<any[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<ClientWithContact | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -97,6 +101,20 @@ export default function ClientsPage() {
   useEffect(() => {
     filterClients(clients, search)
   }, [clients, search, filterClients])
+
+  async function loadClientHistory(client: Client) {
+    setHistoryClient(client)
+    setIsLoadingHistory(true)
+    const [{ data: jobs }, { data: quotes }] = await Promise.all([
+      supabase.from('job_cards').select('id, job_number, title, status, total, created_at')
+        .eq('client_id', client.id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('quotes').select('id, quote_number, status, total, created_at')
+        .eq('client_id', client.id).order('created_at', { ascending: false }).limit(20),
+    ])
+    setClientJobs(jobs || [])
+    setClientQuotes(quotes || [])
+    setIsLoadingHistory(false)
+  }
 
   async function loadClients() {
     setIsLoading(true)

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { StaffJobsPanel } from '@/components/staff/StaffJobsPanel'
+import { GlobalSearch } from '@/components/ui/GlobalSearch'
 import { MessagingWindow } from '@/components/messaging/MessagingWindow'
 import { useAuthStore } from '@/stores/authStore'
 import { supabase } from '@/lib/supabase/client'
@@ -77,6 +78,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-bg flex">
       <Sidebar />
       <main className="flex-1 ml-56 min-h-screen overflow-x-hidden">
+        <div className="fixed top-3 right-4 z-30">
+          <GlobalSearch />
+        </div>
         <div className="min-h-screen pb-24">{children}</div>
       </main>
       <div className="fixed bottom-4 right-4 z-40 flex flex-row items-end gap-2">
