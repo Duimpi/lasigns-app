@@ -1,598 +1,329 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { AppShell } from '@/components/layout/AppShell'
-import { PageHeader } from '@/components/layout/PageHeader'
-import { Modal } from '@/components/ui/Modal'
-import { SearchInput } from '@/components/ui/SearchInput'
-import { StatusBadge } from '@/components/ui/StatusBadge'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { TableSkeleton } from '@/components/ui/Loading'
-import { supabase } from '@/lib/supabase/client'
-import { useAuthStore } from '@/stores/authStore'
-import { formatDate, formatCurrency, debounce } from '@/lib/utils'
-import { generateQuotePDF } from '@/lib/pdf/generator'
-import { useForm, useFieldArray, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import toast from 'react-hot-toast'
-import {
-  Plus, Lock, Unlock, Download, Mail, Printer,
-  Trash2, ChevronRight, X, FileText
-} from 'lucide-react'
-import type { Quote, QuoteStatus, Client } from '@/types'
+import { useState, useEffect } from 'react';
+import { AppShell } from '@/components/layout/AppShell';
+import { createClient } from '@supabase/supabase-js';
+import { SmartLineItem, SmartLineItemHeader, createLineItem, LineItem } from '@/components/ui/SmartLineItem';
 
-const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-const lineItemSchema = z.object({
-  description: z.string().default(''),
-  quantity: z.coerce.number().default(1),
-  unit_price: z.coerce.number().default(0),
-  size: z.string().optional().default(''),
-})
-
-const quoteSchema = z.object({
-  client_id: z.string().optional(),
-  client_name: z.string().min(1, 'Client name is required'),
-  client_email: z.string().email().or(z.literal('').optional()),
-  client_address: z.string().optional(),
-  status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
-  vat_rate: z.coerce.number().default(15),
-  notes: z.string().optional(),
-  valid_until: z.string().optional(),
-  items: z.array(lineItemSchema),
-})
-
-type QuoteFormData = z.infer<typeof quoteSchema>
-
-interface QuoteWithItems extends Quote {
-  items: {
-    id: string
-    description: string
-    quantity: number
-    unit_price: number
-    total: number
-    size?: string
-    sort_order: number
-  }[]
+interface Quote {
+  id: string;
+  quote_number: string;
+  client_id: string | null;
+  client_name: string;
+  title: string;
+  notes: string;
+  status: string;
+  valid_until: string | null;
+  items: LineItem[];
+  subtotal: number;
+  vat_amount: number;
+  total: number;
+  created_at: string;
 }
 
-function QuotesPageInner() {
-  const { profile } = useAuthStore()
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const [quotes, setQuotes] = useState<QuoteWithItems[]>([])
-  const [filtered, setFiltered] = useState<QuoteWithItems[]>([])
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [isLoading, setIsLoading] = useState(true)
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editingQuote, setEditingQuote] = useState<QuoteWithItems | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<QuoteWithItems | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [clients, setClients] = useState<Client[]>([])
-  const [clientSearch, setClientSearch] = useState('')
+const STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  sent: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  accepted: 'bg-green-500/20 text-green-400 border-green-500/30',
+  declined: 'bg-red-500/20 text-red-400 border-red-500/30',
+};
 
-  const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<QuoteFormData>({
-    resolver: zodResolver(quoteSchema),
-    defaultValues: {
-      client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
-    },
-  })
+export default function QuotesPage() {
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editQuote, setEditQuote] = useState<Quote | null>(null);
+  const [search, setSearch] = useState('');
 
-  const { fields: itemFields, append: addItem, remove: removeItem } = useFieldArray({ control, name: 'items' })
-  const watchItems = watch('items')
-  const watchVatRate = watch('vat_rate')
+  const [form, setForm] = useState({
+    client_name: '',
+    title: '',
+    notes: '',
+    status: 'draft',
+    valid_until: '',
+  });
+  const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem()]);
+  const [saving, setSaving] = useState(false);
 
-  // Calculate totals
-  const subtotal = watchItems?.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0) || 0
-  const vatAmount = subtotal * (watchVatRate / 100)
-  const total = subtotal + vatAmount
-
-  useEffect(() => { loadQuotes(); loadClients() }, [])
-
-  // Handle URL params for opening specific quote
-  useEffect(() => {
-    const openId = searchParams.get('open')
-    const isNew = searchParams.get('new')
-    if (isNew) openCreate()
-    else if (openId && quotes.length > 0) {
-      const q = quotes.find(q => q.id === openId)
-      if (q) openEdit(q)
-    }
-  }, [searchParams, quotes.length])
-
-  // Realtime
-  useEffect(() => {
-    const channel = supabase
-      .channel('quotes-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotes' }, loadQuotes)
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  const applyFilter = useCallback(
-    debounce((list: QuoteWithItems[], q: string, status: string) => {
-      let result = list.filter(quote => !quote.is_retail)
-      if (status !== 'all') result = result.filter(quote => quote.status === status)
-      if (q.trim()) {
-        const ql = q.toLowerCase()
-        result = result.filter(quote =>
-          quote.quote_number.toLowerCase().includes(ql) ||
-          (quote.client_name || '').toLowerCase().includes(ql)
-        )
-      }
-      setFiltered(result)
-    }, 120),
-    []
-  )
-
-  useEffect(() => { applyFilter(quotes, search, statusFilter) }, [quotes, search, statusFilter])
+  useEffect(() => { loadQuotes(); }, []);
 
   async function loadQuotes() {
-    setIsLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('quotes')
-        .select(`*, items:quote_items(*)`)
-        .eq('is_retail', false)
-        .order('created_at', { ascending: false })
-      if (error) throw error
-      setQuotes((data as QuoteWithItems[]) || [])
-    } catch { toast.error('Failed to load quotes') }
-    finally { setIsLoading(false) }
-  }
-
-  async function loadClients() {
+    setLoading(true);
     const { data } = await supabase
-      .from('clients')
-      .select('id, name, company')
-      .order('name')
-    setClients((data as Client[]) || [])
-  }
-
-  function openCreate() {
-    setEditingQuote(null)
-    reset({
-      client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
-    })
-    setIsFormOpen(true)
-    router.push('/quotes')
-  }
-
-  function openEdit(quote: QuoteWithItems) {
-    setEditingQuote(quote)
-    reset({
-      client_id: quote.client_id || undefined,
-      client_name: quote.client_name || '',
-      client_email: quote.client_email || '',
-      client_address: quote.client_address || '',
-      status: quote.status,
-      vat_rate: quote.vat_rate,
-      notes: quote.notes || '',
-      valid_until: quote.valid_until || '',
-      items: quote.items.length > 0
-        ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
-            description: i.description,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            size: i.size || '',
-          }))
-        : [{ description: '', quantity: 1, unit_price: 0, size: '' }],
-    })
-    setIsFormOpen(true)
-  }
-
-  async function onSubmit(data: QuoteFormData) {
-    if (editingQuote?.is_locked && profile?.role !== 'admin') {
-      toast.error('Quote is locked. Only admins can edit locked quotes.')
-      return
-    }
-    setIsSaving(true)
-    try {
-      let quoteNumber = editingQuote?.quote_number
-      if (!editingQuote) {
-        const { data: numData } = await supabase.rpc('get_next_quote_number')
-        quoteNumber = numData
-      }
-
-      const sub = data.items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-      const vat = sub * (data.vat_rate / 100)
-
-      const quotePayload = {
-        client_id: data.client_id || null,
-        client_name: data.client_name,
-        client_email: data.client_email || null,
-        client_address: data.client_address || null,
-        status: data.status,
-        vat_rate: data.vat_rate,
-        subtotal: sub,
-        vat_amount: vat,
-        total: sub + vat,
-        notes: data.notes || null,
-        valid_until: data.valid_until || null,
-        is_retail: false,
-        created_by: profile?.id || null,
-      }
-
-      let quoteId: string
-
-      if (editingQuote) {
-        const { error } = await supabase.from('quotes').update(quotePayload).eq('id', editingQuote.id)
-        if (error) throw error
-        quoteId = editingQuote.id
-        await supabase.from('quote_items').delete().eq('quote_id', quoteId)
-      } else {
-        const { data: created, error } = await supabase
-          .from('quotes')
-          .insert({ ...quotePayload, quote_number: quoteNumber })
-          .select()
-          .single()
-        if (error) throw error
-        quoteId = created.id
-      }
-
-      if (data.items.length > 0) {
-        await supabase.from('quote_items').insert(
-          data.items.map((item, i) => ({
-            quote_id: quoteId,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total: item.quantity * item.unit_price,
-            size: item.size || null,
-            sort_order: i,
-          }))
-        )
-      }
-
-      await supabase.from('activity_logs').insert({
-        entity_type: 'quote',
-        entity_id: quoteId,
-        action: editingQuote ? 'updated' : 'created',
-        details: { quote_number: quoteNumber },
-        performed_by: profile?.id,
-      })
-
-      toast.success(editingQuote ? 'Quote updated' : 'Quote created')
-      setIsFormOpen(false)
-      loadQuotes()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save quote')
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function handleToggleLock(quote: QuoteWithItems) {
-    if (profile?.role !== 'admin') {
-      toast.error('Only admins can lock/unlock quotes')
-      return
-    }
-    const { error } = await supabase
       .from('quotes')
-      .update({ is_locked: !quote.is_locked })
-      .eq('id', quote.id)
-    if (error) toast.error('Failed to update lock')
-    else {
-      toast.success(quote.is_locked ? 'Quote unlocked' : 'Quote locked')
-      loadQuotes()
+      .select('*, quote_items(*)')
+      .order('created_at', { ascending: false });
+    if (data) {
+      setQuotes(data.map((q: any) => ({
+        ...q,
+        items: (q.quote_items || []).map((i: any) => ({
+          id: i.id,
+          description: i.description || '',
+          widthMm: i.width_mm?.toString() || '',
+          heightMm: i.height_mm?.toString() || '',
+          sqm: i.sqm || null,
+          qty: i.qty || 1,
+          unitPrice: i.unit_price || null,
+          priceType: i.price_type || 'manual',
+          total: i.total || 0,
+        })),
+      })));
     }
+    setLoading(false);
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setIsDeleting(true)
+  function openNew() {
+    setEditQuote(null);
+    setForm({ client_name: '', title: '', notes: '', status: 'draft', valid_until: '' });
+    setLineItems([createLineItem()]);
+    setShowForm(true);
+  }
+
+  function openEdit(q: Quote) {
+    setEditQuote(q);
+    setForm({ client_name: q.client_name || '', title: q.title || '', notes: q.notes || '', status: q.status || 'draft', valid_until: q.valid_until || '' });
+    setLineItems(q.items.length > 0 ? q.items : [createLineItem()]);
+    setShowForm(true);
+  }
+
+  function openDuplicate(q: Quote) {
+    setEditQuote(null);
+    setForm({ client_name: q.client_name || '', title: q.title + ' (Copy)', notes: q.notes || '', status: 'draft', valid_until: '' });
+    setLineItems(q.items.map(i => ({ ...i, id: crypto.randomUUID() })));
+    setShowForm(true);
+  }
+
+  const subtotal = lineItems.reduce((s, i) => s + (i.total || 0), 0);
+  const vat = subtotal * 0.15;
+  const total = subtotal + vat;
+
+  async function handleSave() {
+    if (!form.client_name) return;
+    setSaving(true);
     try {
-      const { error } = await supabase.from('quotes').delete().eq('id', deleteTarget.id)
-      if (error) throw error
-      toast.success('Quote deleted')
-      setDeleteTarget(null)
-      loadQuotes()
-    } catch (err: any) { toast.error(`Delete failed: ${err?.message || err}`) }
-    finally { setIsDeleting(false) }
+      const quoteData = {
+        client_name: form.client_name,
+        title: form.title,
+        notes: form.notes,
+        status: form.status,
+        valid_until: form.valid_until || null,
+        subtotal,
+        vat_amount: vat,
+        total,
+      };
+
+      let quoteId: string;
+      if (editQuote) {
+        await supabase.from('quotes').update(quoteData).eq('id', editQuote.id);
+        quoteId = editQuote.id;
+        await supabase.from('quote_items').delete().eq('quote_id', quoteId);
+      } else {
+        const { data } = await supabase.from('quotes').insert(quoteData).select().single();
+        quoteId = data.id;
+      }
+
+      const itemsToSave = lineItems
+        .filter(i => i.description || i.unitPrice)
+        .map(i => ({
+          quote_id: quoteId,
+          description: i.description,
+          width_mm: parseFloat(i.widthMm) || null,
+          height_mm: parseFloat(i.heightMm) || null,
+          sqm: i.sqm,
+          qty: i.qty,
+          unit_price: i.unitPrice,
+          price_type: i.priceType,
+          total: i.total,
+        }));
+
+      if (itemsToSave.length > 0) {
+        await supabase.from('quote_items').insert(itemsToSave);
+      }
+
+      setShowForm(false);
+      loadQuotes();
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
   }
 
-  function downloadPDF(quote: QuoteWithItems) {
-    const doc = generateQuotePDF(quote)
-    doc.save(`${quote.quote_number}.pdf`)
-    toast.success('PDF downloaded')
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this quote?')) return;
+    await supabase.from('quote_items').delete().eq('quote_id', id);
+    await supabase.from('quotes').delete().eq('id', id);
+    loadQuotes();
   }
 
-  async function emailQuote(quote: QuoteWithItems) {
-    toast.success('Preparing email...')
-    // TODO: integrate with email API route
-    const doc = generateQuotePDF(quote)
-    doc.save(`${quote.quote_number}.pdf`)
-    toast('PDF ready — please attach manually to email for now', { icon: '📧' })
-  }
-
-  const filteredClients = clients.filter(c =>
-    clientSearch ? c.name.toLowerCase().includes(clientSearch.toLowerCase()) : true
-  ).slice(0, 8)
+  const filtered = quotes.filter(q =>
+    !search ||
+    q.client_name?.toLowerCase().includes(search.toLowerCase()) ||
+    q.title?.toLowerCase().includes(search.toLowerCase()) ||
+    q.quote_number?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <AppShell>
-      <PageHeader
-        title="QUOTES"
-        subtitle={`${filtered.length} quotes`}
-        actions={
-          <button onClick={openCreate} className="btn-primary btn-sm">
-            <Plus className="w-4 h-4" />
-            New Quote
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Quotes</h1>
+            <p className="text-gray-400 text-sm mt-1">{quotes.length} total quotes</p>
+          </div>
+          <button onClick={openNew} className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold px-4 py-2 rounded-lg transition-colors">
+            + New Quote
           </button>
-        }
-      />
+        </div>
 
-      <div className="px-6 pb-6 space-y-4">
-        <div className="flex gap-3 flex-wrap">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search quotes..." className="max-w-xs" />
-          <div className="flex gap-1">
-            {['all', ...STATUSES].map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
-                  statusFilter === s ? 'bg-accent text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
-                }`}
-              >
-                {s === 'all' ? 'All' : s.replace('_', ' ')}
-              </button>
+        <div className="mb-6">
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search quotes..."
+            className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-yellow-500" />
+        </div>
+
+        {loading ? (
+          <div className="text-gray-400 text-center py-12">Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-gray-500 text-center py-12">No quotes found</div>
+        ) : (
+          <div className="grid gap-4">
+            {filtered.map(q => (
+              <div key={q.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-yellow-400 font-mono text-sm">{q.quote_number}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[q.status] || STATUS_COLORS.draft}`}>
+                        {q.status}
+                      </span>
+                    </div>
+                    <h3 className="text-white font-semibold mt-1">{q.title || q.client_name}</h3>
+                    <p className="text-gray-400 text-sm">{q.client_name}</p>
+                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                      {q.valid_until && <span>Valid until: {new Date(q.valid_until).toLocaleDateString()}</span>}
+                      {q.total > 0 && <span className="text-yellow-400 font-semibold">N${q.total?.toFixed(2)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <button onClick={() => openDuplicate(q)} title="Duplicate" className="p-2 text-gray-400 hover:text-blue-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                    <button onClick={() => openEdit(q)} className="p-2 text-gray-400 hover:text-yellow-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    <button onClick={() => handleDelete(q.id)} className="p-2 text-gray-400 hover:text-red-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
-        </div>
-
-        <div className="card overflow-hidden">
-          {isLoading ? <TableSkeleton rows={8} cols={6} /> : filtered.length === 0 ? (
-            <div className="py-16 text-center">
-              <FileText className="w-12 h-12 text-text-muted mx-auto mb-3 opacity-30" />
-              <p className="text-text-muted">No quotes found</p>
-              <button onClick={openCreate} className="btn-primary btn-sm mt-4">Create first quote</button>
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Quote #</th>
-                  <th>Client</th>
-                  <th>Status</th>
-                  <th>Subtotal</th>
-                  <th>VAT</th>
-                  <th>Total</th>
-                  <th>Date</th>
-                  <th className="w-24">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(quote => (
-                  <tr key={quote.id} onClick={() => openEdit(quote)}>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-accent font-semibold">{quote.quote_number}</span>
-                        {quote.is_locked && <Lock className="w-3 h-3 text-text-muted" />}
-                      </div>
-                    </td>
-                    <td className="font-medium">{quote.client_name || '—'}</td>
-                    <td><StatusBadge status={quote.status} /></td>
-                    <td className="text-text-secondary">{formatCurrency(quote.subtotal)}</td>
-                    <td className="text-text-secondary">{formatCurrency(quote.vat_amount)}</td>
-                    <td className="font-semibold">{formatCurrency(quote.total)}</td>
-                    <td className="text-text-muted text-sm">{formatDate(quote.created_at)}</td>
-                    <td>
-                      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF">
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email">
-                          <Mail className="w-3.5 h-3.5" />
-                        </button>
-                        {profile?.role === 'admin' && (
-                          <>
-                            <button onClick={() => handleToggleLock(quote)} className="btn-icon" title={quote.is_locked ? 'Unlock' : 'Lock'}>
-                              {quote.is_locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                            </button>
-                            <button onClick={() => setDeleteTarget(quote)} className="btn-icon text-red-400/50 hover:text-red-400">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Quote Form Modal */}
-      <Modal
-        isOpen={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        title={editingQuote ? `Edit — ${editingQuote.quote_number}` : 'New Quotation'}
-        size="xl"
-        preventOutsideClose={true}
-        actions={
-          editingQuote && (
-            <div className="flex gap-2">
-              <button onClick={() => downloadPDF(editingQuote)} className="btn-secondary btn-sm">
-                <Download className="w-3.5 h-3.5" /> PDF
-              </button>
-              <button onClick={() => emailQuote(editingQuote)} className="btn-secondary btn-sm">
-                <Mail className="w-3.5 h-3.5" /> Email
+      {/* Modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-700">
+              <h2 className="text-white font-bold text-lg">{editQuote ? 'Edit Quote' : 'New Quote'}</h2>
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-white">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-          )
-        }
-      >
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Client section */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">Client Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="relative">
-                <label className="label">Client Name *</label>
-                <input
-                  {...register('client_name')}
-                  className="input"
-                  placeholder="Search or type client name..."
-                  onChange={(e) => {
-                    register('client_name').onChange(e)
-                    setClientSearch(e.target.value)
-                  }}
-                />
-                {clientSearch && filteredClients.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
-                    {filteredClients.map(c => (
-                      <div
-                        key={c.id}
-                        className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                        onMouseDown={() => {
-                          setValue('client_id', c.id)
-                          setValue('client_name', c.name)
-                          setClientSearch('')
-                        }}
-                      >
-                        <p className="text-sm text-text-primary">{c.name}</p>
-                        {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {errors.client_name && <p className="form-error">{errors.client_name.message}</p>}
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Client Name</label>
+                  <input value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
+                    placeholder="Client name"
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Title / Job Description</label>
+                  <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="e.g. Shop Front Signage"
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
+                  <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                    <option value="draft">Draft</option>
+                    <option value="sent">Sent</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="declined">Declined</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">Valid Until</label>
+                  <input type="date" value={form.valid_until} onChange={e => setForm(f => ({ ...f, valid_until: e.target.value }))}
+                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                </div>
+              </div>
+
               <div>
-                <label className="label">Client Email</label>
-                <input {...register('client_email')} type="email" className="input" placeholder="client@example.com" />
+                <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
+                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2} placeholder="Notes for client..."
+                  className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 resize-none" />
+              </div>
+
+              {/* Line Items */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
+                  <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])}
+                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">
+                    + Add Item
+                  </button>
+                </div>
+                <div className="bg-gray-800 border border-gray-700 rounded-xl p-3">
+                  <SmartLineItemHeader />
+                  {lineItems.map((item, idx) => (
+                    <SmartLineItem key={item.id} item={item} index={idx}
+                      onChange={(id, updated) => setLineItems(items => items.map(i => i.id === id ? updated : i))}
+                      onRemove={(id) => setLineItems(items => items.filter(i => i.id !== id))} />
+                  ))}
+                </div>
+
+                <div className="mt-3 space-y-1 text-sm text-right">
+                  <div className="flex justify-between text-gray-400">
+                    <span>Subtotal</span><span>N${subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-400">
+                    <span>VAT (15%)</span><span>N${vat.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2">
+                    <span>TOTAL</span><span>N${total.toFixed(2)}</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div>
-              <label className="label">Client Address</label>
-              <input {...register('client_address')} className="input" placeholder="Full address" />
-            </div>
-          </div>
 
-          {/* Quote details */}
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="label">Status</label>
-              <select {...register('status')} className="input">
-                {STATUSES.map(s => (
-                  <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">VAT Rate (%)</label>
-              <input
-                {...register('vat_rate')}
-                type="number" step="0.01" min="0" max="100"
-                className="input"
-              />
-            </div>
-            <div>
-              <label className="label">Valid Until</label>
-              <input {...register('valid_until')} type="date" className="input" />
-            </div>
-          </div>
-
-          {/* Line items */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">Line Items</h3>
-              <button
-                type="button"
-                onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, size: '' })}
-                className="btn-ghost btn-sm text-accent"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Item
+            <div className="flex gap-3 p-6 border-t border-gray-700">
+              <button onClick={() => setShowForm(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg transition-colors">
+                {saving ? 'Saving...' : editQuote ? 'Save Changes' : 'Create Quote'}
               </button>
             </div>
-
-            {/* Table header */}
-            <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted mb-2 px-1">
-              <div className="col-span-5">Description</div>
-              <div className="col-span-2">Size</div>
-              <div className="col-span-1">Qty</div>
-              <div className="col-span-2">Unit Price</div>
-              <div className="col-span-1 text-right">Total</div>
-              <div className="col-span-1"></div>
-            </div>
-
-            <div className="space-y-2">
-              {itemFields.map((field, i) => (
-                <SmartLineItem
-                  key={field.id}
-                  index={i}
-                  item={{
-                    description: watchItems?.[i]?.description || '',
-                    size: watchItems?.[i]?.size || '',
-                    quantity: Number(watchItems?.[i]?.quantity) || 1,
-                    unit_price: Number(watchItems?.[i]?.unit_price) || 0,
-                  }}
-                  onChange={(idx, fieldName, value) => setValue(`items.${idx}.${fieldName}` as any, value)}
-                  onRemove={(idx) => removeItem(idx)}
-                  showRemove={itemFields.length > 1}
-                />
-              ))}
-            </div>
-
-            {/* Totals */}
-            <div className="mt-4 border-t border-border pt-4 space-y-1.5">
-              <div className="flex justify-between text-sm text-text-secondary">
-                <span>Subtotal</span>
-                <span>{formatCurrency(subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-sm text-text-secondary">
-                <span>VAT ({watchVatRate}%)</span>
-                <span>{formatCurrency(vatAmount)}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5">
-                <span>TOTAL</span>
-                <span>{formatCurrency(total)}</span>
-              </div>
-            </div>
           </div>
-
-          <div>
-            <label className="label">Notes</label>
-            <textarea {...register('notes')} className="input min-h-[80px] resize-none" placeholder="Additional notes..." />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setIsFormOpen(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={isSaving} className="btn-primary flex-1">
-              {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : editingQuote ? 'Update Quote' : 'Create Quote'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete Quote"
-        message={`Delete quote ${deleteTarget?.quote_number}? This cannot be undone.`}
-        confirmLabel="Delete"
-        danger={true}
-        isLoading={isDeleting}
-      />
+        </div>
+      )}
     </AppShell>
-  )
-}
-
-export default function QuotesPage() {
-  return (
-    <Suspense fallback={null}>
-      <QuotesPageInner />
-    </Suspense>
-  )
+  );
 }
