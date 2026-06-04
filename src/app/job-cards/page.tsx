@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { createClient } from '@supabase/supabase-js';
 import { SmartLineItem, SmartLineItemHeader, createLineItem, LineItem } from '@/components/ui/SmartLineItem';
@@ -9,6 +9,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
+
+const WORKERS = [
+  { id: 'nicole', name: 'Nicole' },
+  { id: 'geraldo', name: 'Geraldo' },
+  { id: 'bets-mari', name: 'Bets-Mari' },
+];
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  designing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  printing: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  ready: 'bg-green-500/20 text-green-400 border-green-500/30',
+  delivered: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
+};
 
 interface JobCard {
   id: string;
@@ -24,33 +39,21 @@ interface JobCard {
   due_date: string | null;
   date_completed: string | null;
   items: LineItem[];
+  subtotal: number;
+  vat_amount: number;
+  total: number;
   created_at: string;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  designing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  printing: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  ready: 'bg-green-500/20 text-green-400 border-green-500/30',
-  delivered: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
-};
 
 export default function JobCardsPage() {
   const [jobs, setJobs] = useState<JobCard[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
-  const WORKERS = [
-    { id: 'nicole', name: 'Nicole' },
-    { id: 'geraldo', name: 'Geraldo' },
-    { id: 'bets-mari', name: 'Bets-Mari' },
-  ];
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editJob, setEditJob] = useState<JobCard | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // Form state
   const [form, setForm] = useState({
     client_id: '',
     client_name: '',
@@ -63,13 +66,21 @@ export default function JobCardsPage() {
     due_date: '',
     date_completed: '',
   });
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientDropdown, setClientDropdown] = useState(false);
+  const clientRef = useRef<HTMLDivElement>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem()]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => { loadJobs(); loadClients(); }, []);
 
   useEffect(() => {
-    loadJobs();
-    loadClients();
-    
+    function handleClick(e: MouseEvent) {
+      if (clientRef.current && !clientRef.current.contains(e.target as Node)) setClientDropdown(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
   async function loadJobs() {
@@ -84,12 +95,12 @@ export default function JobCardsPage() {
         items: (j.job_card_items || []).map((i: any) => ({
           id: i.id,
           description: i.description || '',
-          widthMm: i.width_mm?.toString() || '',
-          heightMm: i.height_mm?.toString() || '',
-          sqm: i.sqm || null,
+          widthMm: '',
+          heightMm: '',
+          sqm: null,
           qty: i.qty || 1,
           unitPrice: i.unit_price || null,
-          priceType: i.price_type || 'manual',
+          priceType: 'manual' as const,
           total: i.total || 0,
         })),
       })));
@@ -102,10 +113,22 @@ export default function JobCardsPage() {
     if (data) setClients(data);
   }
 
+  const filteredClients = clients.filter(c =>
+    clientSearch.length > 0 && c.name.toLowerCase().includes(clientSearch.toLowerCase())
+  ).slice(0, 8);
+
+  function selectClient(client: { id: string; name: string }) {
+    setForm(f => ({ ...f, client_id: client.id, client_name: client.name }));
+    setClientSearch(client.name);
+    setClientDropdown(false);
+  }
+
   function openNew() {
     setEditJob(null);
     setForm({ client_id: '', client_name: '', title: '', description: '', notes: '', status: 'pending', priority: 'normal', assigned_to: '', due_date: '', date_completed: '' });
+    setClientSearch('');
     setLineItems([createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
@@ -123,7 +146,9 @@ export default function JobCardsPage() {
       due_date: job.due_date || '',
       date_completed: job.date_completed || '',
     });
+    setClientSearch(job.client_name || '');
     setLineItems(job.items.length > 0 ? job.items : [createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
@@ -141,7 +166,9 @@ export default function JobCardsPage() {
       due_date: '',
       date_completed: '',
     });
+    setClientSearch(job.client_name || '');
     setLineItems(job.items.map(i => ({ ...i, id: crypto.randomUUID() })));
+    setSaveError('');
     setShowForm(true);
   }
 
@@ -150,57 +177,55 @@ export default function JobCardsPage() {
   const total = subtotal + vat;
 
   async function handleSave() {
-    if (!form.title && !form.client_name) return;
+    if (!form.client_name && !form.title) { setSaveError('Please enter a client name or job title'); return; }
     setSaving(true);
+    setSaveError('');
     try {
-      const jobData = {
-        client_id: form.client_id || null,
+      const jobData: any = {
         client_name: form.client_name,
         title: form.title,
         description: form.description,
         notes: form.notes,
         status: form.status,
         priority: form.priority,
-        assigned_to: form.assigned_to || null,
-        due_date: form.due_date || null,
-        date_completed: form.date_completed || null,
         subtotal,
         vat_amount: vat,
         total,
       };
+      if (form.client_id) jobData.client_id = form.client_id;
+      if (form.assigned_to) jobData.assigned_to = form.assigned_to;
+      if (form.due_date) jobData.due_date = form.due_date;
+      if (form.date_completed) jobData.date_completed = form.date_completed;
 
       let jobId: string;
       if (editJob) {
-        await supabase.from('job_cards').update(jobData).eq('id', editJob.id);
+        const { error } = await supabase.from('job_cards').update(jobData).eq('id', editJob.id);
+        if (error) throw error;
         jobId = editJob.id;
         await supabase.from('job_card_items').delete().eq('job_card_id', jobId);
       } else {
-        const { data } = await supabase.from('job_cards').insert(jobData).select().single();
+        const { data, error } = await supabase.from('job_cards').insert(jobData).select('id').single();
+        if (error) throw error;
         jobId = data.id;
       }
 
-      const itemsToSave = lineItems
-        .filter(i => i.description || i.unitPrice)
-        .map(i => ({
+      const validItems = lineItems.filter(i => i.description || i.unitPrice);
+      if (validItems.length > 0) {
+        const itemsPayload = validItems.map(i => ({
           job_card_id: jobId,
           description: i.description,
-          width_mm: parseFloat(i.widthMm) || null,
-          height_mm: parseFloat(i.heightMm) || null,
-          sqm: i.sqm,
-          qty: i.qty,
-          unit_price: i.unitPrice,
-          price_type: i.priceType,
-          total: i.total,
+          qty: i.qty || 1,
+          unit_price: i.unitPrice || 0,
+          total: i.total || 0,
         }));
-
-      if (itemsToSave.length > 0) {
-        await supabase.from('job_card_items').insert(itemsToSave);
+        const { error: itemError } = await supabase.from('job_card_items').insert(itemsPayload);
+        if (itemError) console.warn('Items warning:', itemError.message);
       }
 
       setShowForm(false);
       loadJobs();
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setSaveError(e?.message || 'Failed to save. Check your connection and try again.');
     }
     setSaving(false);
   }
@@ -212,14 +237,6 @@ export default function JobCardsPage() {
     loadJobs();
   }
 
-  function handleLineChange(id: string, updated: LineItem) {
-    setLineItems(items => items.map(i => i.id === id ? updated : i));
-  }
-
-  function handleLineRemove(id: string) {
-    setLineItems(items => items.filter(i => i.id !== id));
-  }
-
   const filtered = jobs.filter(j => {
     const matchSearch = !search || j.title?.toLowerCase().includes(search.toLowerCase()) || j.client_name?.toLowerCase().includes(search.toLowerCase()) || j.job_number?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || j.status === filterStatus;
@@ -229,7 +246,6 @@ export default function JobCardsPage() {
   return (
     <AppShell>
       <div className="p-6">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white">Job Cards</h1>
@@ -240,14 +256,10 @@ export default function JobCardsPage() {
           </button>
         </div>
 
-        {/* Filters */}
         <div className="flex gap-3 mb-6 flex-wrap">
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+          <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search jobs..."
-            className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-yellow-500"
-          />
+            className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-yellow-500" />
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
             <option value="all">All Status</option>
@@ -260,11 +272,10 @@ export default function JobCardsPage() {
           </select>
         </div>
 
-        {/* Job Cards Grid */}
         {loading ? (
           <div className="text-gray-400 text-center py-12">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-gray-500 text-center py-12">No job cards found</div>
+          <div className="text-gray-500 text-center py-12">No job cards yet — create one above</div>
         ) : (
           <div className="grid gap-4">
             {filtered.map(job => (
@@ -273,17 +284,12 @@ export default function JobCardsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-yellow-400 font-mono text-sm">{job.job_number}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>
-                        {job.status}
-                      </span>
-                      {job.priority === 'urgent' && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 font-medium uppercase">URGENT</span>
-                      )}
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>{job.status}</span>
+                      {job.priority === 'urgent' && <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 font-medium uppercase">URGENT</span>}
                     </div>
                     <h3 className="text-white font-semibold mt-1 truncate">{job.title || job.client_name}</h3>
                     <p className="text-gray-400 text-sm">{job.client_name}</p>
-                    {job.description && <p className="text-gray-500 text-xs mt-1 line-clamp-1">{job.description}</p>}
-                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                    <div className="flex gap-4 mt-1 text-xs text-gray-500">
                       {job.due_date && <span>Due: {new Date(job.due_date).toLocaleDateString()}</span>}
                       {job.assigned_to && <span>Worker: {WORKERS.find(w => w.id === job.assigned_to)?.name || job.assigned_to}</span>}
                       {job.total > 0 && <span className="text-yellow-400 font-semibold">N${job.total?.toFixed(2)}</span>}
@@ -307,7 +313,6 @@ export default function JobCardsPage() {
         )}
       </div>
 
-      {/* Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -319,13 +324,33 @@ export default function JobCardsPage() {
             </div>
 
             <div className="p-6 space-y-4">
-              {/* Client + Title */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Client Name</label>
-                  <input value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
-                    placeholder="Client name"
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                  <div ref={clientRef} className="relative mt-1">
+                    <input
+                      value={clientSearch}
+                      onChange={e => {
+                        setClientSearch(e.target.value);
+                        setForm(f => ({ ...f, client_name: e.target.value, client_id: '' }));
+                        setClientDropdown(true);
+                      }}
+                      onFocus={() => { if (clientSearch.length > 0) setClientDropdown(true); }}
+                      placeholder="Type client name..."
+                      className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
+                    />
+                    {clientDropdown && filteredClients.length > 0 && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {filteredClients.map(c => (
+                          <button key={c.id} type="button"
+                            onMouseDown={e => { e.preventDefault(); selectClient(c); }}
+                            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 border-b border-gray-700 last:border-0">
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Job Title</label>
@@ -335,7 +360,6 @@ export default function JobCardsPage() {
                 </div>
               </div>
 
-              {/* Status + Priority + Worker */}
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
@@ -368,7 +392,6 @@ export default function JobCardsPage() {
                 </div>
               </div>
 
-              {/* Dates */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Due Date</label>
@@ -382,7 +405,6 @@ export default function JobCardsPage() {
                 </div>
               </div>
 
-              {/* Description + Notes */}
               <div>
                 <label className="text-xs text-gray-400 uppercase tracking-wide">Description</label>
                 <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -396,47 +418,35 @@ export default function JobCardsPage() {
                   className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 resize-none" />
               </div>
 
-              {/* Line Items */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
                   <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])}
-                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">
-                    + Add Item
-                  </button>
+                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">+ Add Item</button>
                 </div>
                 <div className="bg-gray-800 border border-gray-700 rounded-xl p-3">
                   <SmartLineItemHeader />
                   {lineItems.map((item, idx) => (
                     <SmartLineItem key={item.id} item={item} index={idx}
-                      onChange={handleLineChange} onRemove={handleLineRemove} />
+                      onChange={(id, updated) => setLineItems(items => items.map(i => i.id === id ? updated : i))}
+                      onRemove={(id) => setLineItems(items => items.filter(i => i.id !== id))} />
                   ))}
                 </div>
-
-                {/* Totals */}
-                <div className="mt-3 space-y-1 text-sm text-right">
-                  <div className="flex justify-between text-gray-400">
-                    <span>Subtotal</span>
-                    <span>N${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-400">
-                    <span>VAT (15%)</span>
-                    <span>N${vat.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2">
-                    <span>TOTAL</span>
-                    <span>N${total.toFixed(2)}</span>
-                  </div>
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="flex justify-between text-gray-400"><span>Subtotal</span><span>N${subtotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-gray-400"><span>VAT (15%)</span><span>N${vat.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2"><span>TOTAL</span><span>N${total.toFixed(2)}</span></div>
                 </div>
               </div>
+
+              {saveError && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">{saveError}</div>
+              )}
             </div>
 
-            {/* Footer */}
             <div className="flex gap-3 p-6 border-t border-gray-700">
               <button onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
-                Cancel
-              </button>
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
                 className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving...' : editJob ? 'Save Changes' : 'Create Job Card'}

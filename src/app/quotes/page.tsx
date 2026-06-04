@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { createClient } from '@supabase/supabase-js';
 import { SmartLineItem, SmartLineItemHeader, createLineItem, LineItem } from '@/components/ui/SmartLineItem';
@@ -35,22 +35,40 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editQuote, setEditQuote] = useState<Quote | null>(null);
   const [search, setSearch] = useState('');
 
   const [form, setForm] = useState({
+    client_id: '',
     client_name: '',
     title: '',
     notes: '',
     status: 'draft',
     valid_until: '',
   });
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientDropdown, setClientDropdown] = useState(false);
+  const clientRef = useRef<HTMLDivElement>(null);
+
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem()]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
-  useEffect(() => { loadQuotes(); }, []);
+  useEffect(() => { loadQuotes(); loadClients(); }, []);
+
+  // Close client dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (clientRef.current && !clientRef.current.contains(e.target as Node)) {
+        setClientDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   async function loadQuotes() {
     setLoading(true);
@@ -64,12 +82,12 @@ export default function QuotesPage() {
         items: (q.quote_items || []).map((i: any) => ({
           id: i.id,
           description: i.description || '',
-          widthMm: i.width_mm?.toString() || '',
-          heightMm: i.height_mm?.toString() || '',
-          sqm: i.sqm || null,
+          widthMm: '',
+          heightMm: '',
+          sqm: null,
           qty: i.qty || 1,
           unitPrice: i.unit_price || null,
-          priceType: i.price_type || 'manual',
+          priceType: 'manual' as const,
           total: i.total || 0,
         })),
       })));
@@ -77,24 +95,46 @@ export default function QuotesPage() {
     setLoading(false);
   }
 
+  async function loadClients() {
+    const { data } = await supabase.from('clients').select('id, name').order('name');
+    if (data) setClients(data);
+  }
+
+  const filteredClients = clients.filter(c =>
+    clientSearch.length > 0 &&
+    c.name.toLowerCase().includes(clientSearch.toLowerCase())
+  ).slice(0, 8);
+
+  function selectClient(client: { id: string; name: string }) {
+    setForm(f => ({ ...f, client_id: client.id, client_name: client.name }));
+    setClientSearch(client.name);
+    setClientDropdown(false);
+  }
+
   function openNew() {
     setEditQuote(null);
-    setForm({ client_name: '', title: '', notes: '', status: 'draft', valid_until: '' });
+    setForm({ client_id: '', client_name: '', title: '', notes: '', status: 'draft', valid_until: '' });
+    setClientSearch('');
     setLineItems([createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
   function openEdit(q: Quote) {
     setEditQuote(q);
-    setForm({ client_name: q.client_name || '', title: q.title || '', notes: q.notes || '', status: q.status || 'draft', valid_until: q.valid_until || '' });
+    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title || '', notes: q.notes || '', status: q.status || 'draft', valid_until: q.valid_until || '' });
+    setClientSearch(q.client_name || '');
     setLineItems(q.items.length > 0 ? q.items : [createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
   function openDuplicate(q: Quote) {
     setEditQuote(null);
-    setForm({ client_name: q.client_name || '', title: q.title + ' (Copy)', notes: q.notes || '', status: 'draft', valid_until: '' });
+    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title + ' (Copy)', notes: q.notes || '', status: 'draft', valid_until: '' });
+    setClientSearch(q.client_name || '');
     setLineItems(q.items.map(i => ({ ...i, id: crypto.randomUUID() })));
+    setSaveError('');
     setShowForm(true);
   }
 
@@ -103,52 +143,54 @@ export default function QuotesPage() {
   const total = subtotal + vat;
 
   async function handleSave() {
-    if (!form.client_name) return;
+    if (!form.client_name) { setSaveError('Client name is required'); return; }
     setSaving(true);
+    setSaveError('');
     try {
-      const quoteData = {
+      // Only use columns that definitely exist in the quotes table
+      const quoteData: any = {
         client_name: form.client_name,
         title: form.title,
         notes: form.notes,
         status: form.status,
-        valid_until: form.valid_until || null,
         subtotal,
         vat_amount: vat,
         total,
       };
+      if (form.client_id) quoteData.client_id = form.client_id;
+      if (form.valid_until) quoteData.valid_until = form.valid_until;
 
       let quoteId: string;
       if (editQuote) {
-        await supabase.from('quotes').update(quoteData).eq('id', editQuote.id);
+        const { error } = await supabase.from('quotes').update(quoteData).eq('id', editQuote.id);
+        if (error) throw error;
         quoteId = editQuote.id;
         await supabase.from('quote_items').delete().eq('quote_id', quoteId);
       } else {
-        const { data } = await supabase.from('quotes').insert(quoteData).select().single();
+        const { data, error } = await supabase.from('quotes').insert(quoteData).select('id').single();
+        if (error) throw error;
         quoteId = data.id;
       }
 
-      const itemsToSave = lineItems
-        .filter(i => i.description || i.unitPrice)
-        .map(i => ({
+      // Save line items — only use columns that exist (description, qty, unit_price, total)
+      const validItems = lineItems.filter(i => i.description || i.unitPrice);
+      if (validItems.length > 0) {
+        const itemsPayload = validItems.map(i => ({
           quote_id: quoteId,
           description: i.description,
-          width_mm: parseFloat(i.widthMm) || null,
-          height_mm: parseFloat(i.heightMm) || null,
-          sqm: i.sqm,
-          qty: i.qty,
-          unit_price: i.unitPrice,
-          price_type: i.priceType,
-          total: i.total,
+          qty: i.qty || 1,
+          unit_price: i.unitPrice || 0,
+          total: i.total || 0,
         }));
-
-      if (itemsToSave.length > 0) {
-        await supabase.from('quote_items').insert(itemsToSave);
+        const { error: itemError } = await supabase.from('quote_items').insert(itemsPayload);
+        if (itemError) console.warn('Line items save warning:', itemError.message);
       }
 
       setShowForm(false);
       loadQuotes();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setSaveError(e?.message || 'Failed to save. Please try again.');
     }
     setSaving(false);
   }
@@ -189,7 +231,7 @@ export default function QuotesPage() {
         {loading ? (
           <div className="text-gray-400 text-center py-12">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-gray-500 text-center py-12">No quotes found</div>
+          <div className="text-gray-500 text-center py-12">No quotes yet — create one above</div>
         ) : (
           <div className="grid gap-4">
             {filtered.map(q => (
@@ -198,13 +240,11 @@ export default function QuotesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-yellow-400 font-mono text-sm">{q.quote_number}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[q.status] || STATUS_COLORS.draft}`}>
-                        {q.status}
-                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[q.status] || STATUS_COLORS.draft}`}>{q.status}</span>
                     </div>
                     <h3 className="text-white font-semibold mt-1">{q.title || q.client_name}</h3>
                     <p className="text-gray-400 text-sm">{q.client_name}</p>
-                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                    <div className="flex gap-4 mt-1 text-xs text-gray-500">
                       {q.valid_until && <span>Valid until: {new Date(q.valid_until).toLocaleDateString()}</span>}
                       {q.total > 0 && <span className="text-yellow-400 font-semibold">N${q.total?.toFixed(2)}</span>}
                     </div>
@@ -227,7 +267,6 @@ export default function QuotesPage() {
         )}
       </div>
 
-      {/* Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -240,11 +279,33 @@ export default function QuotesPage() {
 
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                {/* Client name with autofill */}
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Client Name</label>
-                  <input value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
-                    placeholder="Client name"
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                  <div ref={clientRef} className="relative mt-1">
+                    <input
+                      value={clientSearch}
+                      onChange={e => {
+                        setClientSearch(e.target.value);
+                        setForm(f => ({ ...f, client_name: e.target.value, client_id: '' }));
+                        setClientDropdown(true);
+                      }}
+                      onFocus={() => { if (clientSearch.length > 0) setClientDropdown(true); }}
+                      placeholder="Type client name..."
+                      className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
+                    />
+                    {clientDropdown && filteredClients.length > 0 && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {filteredClients.map(c => (
+                          <button key={c.id} type="button"
+                            onMouseDown={e => { e.preventDefault(); selectClient(c); }}
+                            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 border-b border-gray-700 last:border-0">
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Title / Job Description</label>
@@ -284,9 +345,7 @@ export default function QuotesPage() {
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
                   <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])}
-                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">
-                    + Add Item
-                  </button>
+                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">+ Add Item</button>
                 </div>
                 <div className="bg-gray-800 border border-gray-700 rounded-xl p-3">
                   <SmartLineItemHeader />
@@ -296,26 +355,23 @@ export default function QuotesPage() {
                       onRemove={(id) => setLineItems(items => items.filter(i => i.id !== id))} />
                   ))}
                 </div>
-
-                <div className="mt-3 space-y-1 text-sm text-right">
-                  <div className="flex justify-between text-gray-400">
-                    <span>Subtotal</span><span>N${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-400">
-                    <span>VAT (15%)</span><span>N${vat.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2">
-                    <span>TOTAL</span><span>N${total.toFixed(2)}</span>
-                  </div>
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="flex justify-between text-gray-400"><span>Subtotal</span><span>N${subtotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-gray-400"><span>VAT (15%)</span><span>N${vat.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2"><span>TOTAL</span><span>N${total.toFixed(2)}</span></div>
                 </div>
               </div>
+
+              {saveError && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">
+                  {saveError}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-6 border-t border-gray-700">
               <button onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
-                Cancel
-              </button>
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
                 className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg transition-colors">
                 {saving ? 'Saving...' : editQuote ? 'Save Changes' : 'Create Quote'}

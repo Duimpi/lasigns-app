@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { createClient } from '@supabase/supabase-js';
 import { SmartLineItem, SmartLineItemHeader, createLineItem, LineItem } from '@/components/ui/SmartLineItem';
@@ -10,7 +10,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Retailer branches
 const RETAILER_BRANCHES: Record<string, string[]> = {
   Shoprite: ['Shoprite Katutura', 'Shoprite Okuryangava', 'Shoprite Khomasdal', 'Shoprite Brakwater', 'Shoprite Ongwediva', 'Shoprite Rundu', 'Shoprite Katima Mulilo', 'Shoprite Otjiwarongo', 'Shoprite Gobabis', 'Shoprite Okahandja'],
   Checkers: ['Checkers Grove Mall', 'Checkers Maerua Mall', 'Checkers Kleine Kuppe', 'Checkers Eros', 'Checkers Windhoek North'],
@@ -22,7 +21,6 @@ const RETAILER_BRANCHES: Record<string, string[]> = {
 };
 
 const RETAILERS = Object.keys(RETAILER_BRANCHES);
-
 const WORKERS = [
   { id: 'nicole', name: 'Nicole' },
   { id: 'geraldo', name: 'Geraldo' },
@@ -60,6 +58,7 @@ export default function RetailPage() {
   const [editJob, setEditJob] = useState<RetailJob | null>(null);
   const [search, setSearch] = useState('');
   const [filterRetailer, setFilterRetailer] = useState('all');
+  const [saveError, setSaveError] = useState('');
 
   const [form, setForm] = useState({
     retailer: 'Shoprite',
@@ -75,11 +74,7 @@ export default function RetailPage() {
   const branches = RETAILER_BRANCHES[form.retailer] || [];
 
   useEffect(() => { loadJobs(); }, []);
-
-  // Reset branch when retailer changes
-  useEffect(() => {
-    setForm(f => ({ ...f, branch_name: '' }));
-  }, [form.retailer]);
+  useEffect(() => { setForm(f => ({ ...f, branch_name: '' })); }, [form.retailer]);
 
   async function loadJobs() {
     setLoading(true);
@@ -93,12 +88,12 @@ export default function RetailPage() {
         items: (j.job_card_items || []).map((i: any) => ({
           id: i.id,
           description: i.description || '',
-          widthMm: i.width_mm?.toString() || '',
-          heightMm: i.height_mm?.toString() || '',
-          sqm: i.sqm || null,
+          widthMm: '',
+          heightMm: '',
+          sqm: null,
           qty: i.qty || 1,
           unitPrice: i.unit_price || null,
-          priceType: i.price_type || 'manual',
+          priceType: 'manual' as const,
           total: i.total || 0,
         })),
       })));
@@ -110,34 +105,23 @@ export default function RetailPage() {
     setEditJob(null);
     setForm({ retailer: 'Shoprite', branch_name: '', contact_name: '', assigned_to: '', status: 'pending', notes: '' });
     setLineItems([createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
   function openEdit(job: RetailJob) {
     setEditJob(job);
-    setForm({
-      retailer: job.retailer || 'Shoprite',
-      branch_name: job.branch_name || '',
-      contact_name: job.contact_name || '',
-      assigned_to: job.assigned_to || '',
-      status: job.status || 'pending',
-      notes: job.notes || '',
-    });
+    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', assigned_to: job.assigned_to || '', status: job.status || 'pending', notes: job.notes || '' });
     setLineItems(job.items.length > 0 ? job.items : [createLineItem()]);
+    setSaveError('');
     setShowForm(true);
   }
 
   function openDuplicate(job: RetailJob) {
     setEditJob(null);
-    setForm({
-      retailer: job.retailer || 'Shoprite',
-      branch_name: job.branch_name || '',
-      contact_name: job.contact_name || '',
-      assigned_to: job.assigned_to || '',
-      status: 'pending',
-      notes: job.notes || '',
-    });
+    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', assigned_to: job.assigned_to || '', status: 'pending', notes: job.notes || '' });
     setLineItems(job.items.map(i => ({ ...i, id: crypto.randomUUID() })));
+    setSaveError('');
     setShowForm(true);
   }
 
@@ -146,52 +130,52 @@ export default function RetailPage() {
   const total = subtotal + vat;
 
   async function handleSave() {
-    if (!form.branch_name) return;
+    if (!form.branch_name) { setSaveError('Please select or enter a branch name'); return; }
     setSaving(true);
+    setSaveError('');
     try {
-      const jobData = {
+      const jobData: any = {
         branch_name: form.branch_name,
         retailer: form.retailer,
         contact_name: form.contact_name,
-        assigned_to: form.assigned_to || null,
         status: form.status,
         notes: form.notes,
         subtotal,
         vat_amount: vat,
         total,
       };
+      if (form.assigned_to) jobData.assigned_to = form.assigned_to;
 
       let jobId: string;
       if (editJob) {
-        await supabase.from('retail_branches').update(jobData).eq('id', editJob.id);
+        const { error } = await supabase.from('retail_branches').update(jobData).eq('id', editJob.id);
+        if (error) throw error;
         jobId = editJob.id;
         await supabase.from('job_card_items').delete().eq('job_card_id', jobId);
       } else {
-        const { data } = await supabase.from('retail_branches').insert(jobData).select().single();
+        const { data, error } = await supabase.from('retail_branches').insert(jobData).select('id').single();
+        if (error) throw error;
         jobId = data.id;
       }
 
-      const itemsToSave = lineItems
-        .filter(i => i.description || i.unitPrice)
-        .map(i => ({
+      const validItems = lineItems.filter(i => i.description || i.unitPrice);
+      if (validItems.length > 0) {
+        const itemsPayload = validItems.map(i => ({
           job_card_id: jobId,
           description: i.description,
-          width_mm: parseFloat(i.widthMm) || null,
-          height_mm: parseFloat(i.heightMm) || null,
-          sqm: i.sqm,
-          qty: i.qty,
-          unit_price: i.unitPrice,
-          price_type: i.priceType,
-          total: i.total,
+          qty: i.qty || 1,
+          unit_price: i.unitPrice || 0,
+          total: i.total || 0,
         }));
-
-      if (itemsToSave.length > 0) {
-        await supabase.from('job_card_items').insert(itemsToSave);
+        const { error: itemError } = await supabase.from('job_card_items').insert(itemsPayload);
+        if (itemError) console.warn('Items warning:', itemError.message);
       }
 
       setShowForm(false);
       loadJobs();
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      setSaveError(e?.message || 'Failed to save. Check your connection and try again.');
+    }
     setSaving(false);
   }
 
@@ -235,7 +219,7 @@ export default function RetailPage() {
         {loading ? (
           <div className="text-gray-400 text-center py-12">Loading...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-gray-500 text-center py-12">No retail jobs found</div>
+          <div className="text-gray-500 text-center py-12">No retail jobs yet — create one above</div>
         ) : (
           <div className="grid gap-4">
             {filtered.map(job => (
@@ -272,7 +256,6 @@ export default function RetailPage() {
         )}
       </div>
 
-      {/* Modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -284,7 +267,6 @@ export default function RetailPage() {
             </div>
 
             <div className="p-6 space-y-4">
-              {/* Retailer + Branch */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Retailer</label>
@@ -299,19 +281,16 @@ export default function RetailPage() {
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
                     <option value="">— Select Branch —</option>
                     {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                    <option value="__custom__">Other (type below)</option>
+                    <option value="custom">Other (type below)</option>
                   </select>
-                  {form.branch_name === '__custom__' && (
-                    <input
-                      placeholder="Type branch name..."
+                  {form.branch_name === 'custom' && (
+                    <input placeholder="Type branch name..."
                       onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
-                      className="mt-2 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
-                    />
+                      className="mt-2 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
                   )}
                 </div>
               </div>
 
-              {/* Contact + Worker + Status */}
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Contact Name</label>
@@ -347,7 +326,6 @@ export default function RetailPage() {
                   className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 resize-none" />
               </div>
 
-              {/* Line Items */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
@@ -368,6 +346,10 @@ export default function RetailPage() {
                   <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2"><span>TOTAL</span><span>N${total.toFixed(2)}</span></div>
                 </div>
               </div>
+
+              {saveError && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">{saveError}</div>
+              )}
             </div>
 
             <div className="flex gap-3 p-6 border-t border-gray-700">
