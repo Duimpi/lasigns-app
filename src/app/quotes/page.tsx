@@ -97,7 +97,8 @@ export default function QuotesPage() {
   }
 
   async function loadClients() {
-    const { data: clientData } = await supabase.from('clients').select('id, name').order('name');
+    const { data: clientData, error } = await supabase.from('clients').select('id, name').is('deleted_at', null).order('name');
+    if (error) { console.error('loadClients error:', error.message); return; }
     const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
     if (clientData) {
       setClients(clientData.map((c: any) => ({
