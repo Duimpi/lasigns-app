@@ -47,7 +47,8 @@ interface JobCard {
 
 export default function JobCardsPage() {
   const [jobs, setJobs] = useState<JobCard[]>([]);
-  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [clients, setClients] = useState<{ id: string; name: string; phone: string | null }[]>([]);
+  const [selectedPhone, setSelectedPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editJob, setEditJob] = useState<JobCard | null>(null);
@@ -109,17 +110,24 @@ export default function JobCardsPage() {
   }
 
   async function loadClients() {
-    const { data } = await supabase.from('clients').select('id, name').order('name');
-    if (data) setClients(data);
+    const { data: clientData } = await supabase.from('clients').select('id, name, phone').order('name');
+    const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
+    if (clientData) {
+      setClients(clientData.map((c: any) => ({
+        ...c,
+        phone: c.phone || (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
+      })));
+    }
   }
 
   const filteredClients = clients.filter(c =>
     clientSearch.length > 0 && c.name.toLowerCase().includes(clientSearch.toLowerCase())
   ).slice(0, 8);
 
-  function selectClient(client: { id: string; name: string }) {
+  function selectClient(client: { id: string; name: string; phone: string | null }) {
     setForm(f => ({ ...f, client_id: client.id, client_name: client.name }));
     setClientSearch(client.name);
+    setSelectedPhone(client.phone || '');
     setClientDropdown(false);
   }
 
@@ -127,6 +135,7 @@ export default function JobCardsPage() {
     setEditJob(null);
     setForm({ client_id: '', client_name: '', title: '', description: '', notes: '', status: 'pending', priority: 'normal', assigned_to: '', due_date: '', date_completed: '' });
     setClientSearch('');
+    setSelectedPhone('');
     setLineItems([createLineItem()]);
     setSaveError('');
     setShowForm(true);

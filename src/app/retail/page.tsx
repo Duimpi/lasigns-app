@@ -41,7 +41,6 @@ interface RetailJob {
   branch_name: string;
   retailer: string;
   contact_name: string;
-  assigned_to: string;
   status: string;
   notes: string;
   items: LineItem[];
@@ -59,18 +58,17 @@ export default function RetailPage() {
   const [search, setSearch] = useState('');
   const [filterRetailer, setFilterRetailer] = useState('all');
   const [saveError, setSaveError] = useState('');
-
+  // Worker stored in notes as prefix since assigned_to col doesn't exist in retail_branches
   const [form, setForm] = useState({
     retailer: 'Shoprite',
     branch_name: '',
     contact_name: '',
-    assigned_to: '',
+    worker: '',   // stored in notes field
     status: 'pending',
     notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem()]);
   const [saving, setSaving] = useState(false);
-
   const branches = RETAILER_BRANCHES[form.retailer] || [];
 
   useEffect(() => { loadJobs(); }, []);
@@ -88,9 +86,7 @@ export default function RetailPage() {
         items: (j.job_card_items || []).map((i: any) => ({
           id: i.id,
           description: i.description || '',
-          widthMm: '',
-          heightMm: '',
-          sqm: null,
+          widthMm: '', heightMm: '', sqm: null,
           qty: i.qty || 1,
           unitPrice: i.unit_price || null,
           priceType: 'manual' as const,
@@ -103,7 +99,7 @@ export default function RetailPage() {
 
   function openNew() {
     setEditJob(null);
-    setForm({ retailer: 'Shoprite', branch_name: '', contact_name: '', assigned_to: '', status: 'pending', notes: '' });
+    setForm({ retailer: 'Shoprite', branch_name: '', contact_name: '', worker: '', status: 'pending', notes: '' });
     setLineItems([createLineItem()]);
     setSaveError('');
     setShowForm(true);
@@ -111,7 +107,7 @@ export default function RetailPage() {
 
   function openEdit(job: RetailJob) {
     setEditJob(job);
-    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', assigned_to: job.assigned_to || '', status: job.status || 'pending', notes: job.notes || '' });
+    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', worker: '', status: job.status || 'pending', notes: job.notes || '' });
     setLineItems(job.items.length > 0 ? job.items : [createLineItem()]);
     setSaveError('');
     setShowForm(true);
@@ -119,7 +115,7 @@ export default function RetailPage() {
 
   function openDuplicate(job: RetailJob) {
     setEditJob(null);
-    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', assigned_to: job.assigned_to || '', status: 'pending', notes: job.notes || '' });
+    setForm({ retailer: job.retailer || 'Shoprite', branch_name: job.branch_name || '', contact_name: job.contact_name || '', worker: '', status: 'pending', notes: job.notes || '' });
     setLineItems(job.items.map(i => ({ ...i, id: crypto.randomUUID() })));
     setSaveError('');
     setShowForm(true);
@@ -130,21 +126,26 @@ export default function RetailPage() {
   const total = subtotal + vat;
 
   async function handleSave() {
-    if (!form.branch_name) { setSaveError('Please select or enter a branch name'); return; }
+    if (!form.branch_name || form.branch_name === 'custom') { setSaveError('Please select or enter a branch name'); return; }
     setSaving(true);
     setSaveError('');
     try {
+      // Only safe columns that exist in retail_branches
       const jobData: any = {
         branch_name: form.branch_name,
         retailer: form.retailer,
         contact_name: form.contact_name,
         status: form.status,
-        notes: form.notes,
         subtotal,
         vat_amount: vat,
         total,
       };
-      if (form.assigned_to) jobData.assigned_to = form.assigned_to;
+      // Store worker in notes since assigned_to doesn't exist on retail_branches
+      const workerName = WORKERS.find(w => w.id === form.worker)?.name;
+      jobData.notes = [
+        workerName ? `Worker: ${workerName}` : '',
+        form.notes,
+      ].filter(Boolean).join('\n');
 
       let jobId: string;
       if (editJob) {
@@ -160,21 +161,22 @@ export default function RetailPage() {
 
       const validItems = lineItems.filter(i => i.description || i.unitPrice);
       if (validItems.length > 0) {
-        const itemsPayload = validItems.map(i => ({
-          job_card_id: jobId,
-          description: i.description,
-          qty: i.qty || 1,
-          unit_price: i.unitPrice || 0,
-          total: i.total || 0,
-        }));
-        const { error: itemError } = await supabase.from('job_card_items').insert(itemsPayload);
+        const { error: itemError } = await supabase.from('job_card_items').insert(
+          validItems.map(i => ({
+            job_card_id: jobId,
+            description: i.description,
+            qty: i.qty || 1,
+            unit_price: i.unitPrice || 0,
+            total: i.total || 0,
+          }))
+        );
         if (itemError) console.warn('Items warning:', itemError.message);
       }
 
       setShowForm(false);
       loadJobs();
     } catch (e: any) {
-      setSaveError(e?.message || 'Failed to save. Check your connection and try again.');
+      setSaveError(e?.message || 'Failed to save. Check connection and try again.');
     }
     setSaving(false);
   }
@@ -192,6 +194,9 @@ export default function RetailPage() {
     return matchSearch && matchRetailer;
   });
 
+  const sel = "mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500";
+  const inp = "mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500";
+
   return (
     <AppShell>
       <div className="p-6">
@@ -200,14 +205,11 @@ export default function RetailPage() {
             <h1 className="text-2xl font-bold text-white">Retail</h1>
             <p className="text-gray-400 text-sm mt-1">{jobs.length} total retail jobs</p>
           </div>
-          <button onClick={openNew} className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold px-4 py-2 rounded-lg transition-colors">
-            + New Retail Job
-          </button>
+          <button onClick={openNew} className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold px-4 py-2 rounded-lg">+ New Retail Job</button>
         </div>
 
         <div className="flex gap-3 mb-6 flex-wrap">
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search retail jobs..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search retail jobs..."
             className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-yellow-500" />
           <select value={filterRetailer} onChange={e => setFilterRetailer(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
@@ -216,44 +218,39 @@ export default function RetailPage() {
           </select>
         </div>
 
-        {loading ? (
-          <div className="text-gray-400 text-center py-12">Loading...</div>
-        ) : filtered.length === 0 ? (
-          <div className="text-gray-500 text-center py-12">No retail jobs yet — create one above</div>
-        ) : (
-          <div className="grid gap-4">
-            {filtered.map(job => (
-              <div key={job.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-yellow-400 font-mono text-sm">{job.job_number}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 font-medium">{job.retailer}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>{job.status}</span>
+        {loading ? <div className="text-gray-400 text-center py-12">Loading...</div>
+          : filtered.length === 0 ? <div className="text-gray-500 text-center py-12">No retail jobs yet</div>
+          : (
+            <div className="grid gap-4">
+              {filtered.map(job => (
+                <div key={job.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-gray-600 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-yellow-400 font-mono text-sm">{job.job_number}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 font-medium">{job.retailer}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium uppercase ${STATUS_COLORS[job.status] || STATUS_COLORS.pending}`}>{job.status}</span>
+                      </div>
+                      <h3 className="text-white font-semibold mt-1">{job.branch_name}</h3>
+                      {job.contact_name && <p className="text-gray-400 text-sm">{job.contact_name}</p>}
+                      {job.total > 0 && <p className="text-yellow-400 text-sm font-semibold mt-1">N${job.total?.toFixed(2)}</p>}
                     </div>
-                    <h3 className="text-white font-semibold mt-1">{job.branch_name}</h3>
-                    {job.contact_name && <p className="text-gray-400 text-sm">{job.contact_name}</p>}
-                    <div className="flex gap-4 mt-1 text-xs text-gray-500">
-                      {job.assigned_to && <span>Worker: {WORKERS.find(w => w.id === job.assigned_to)?.name || job.assigned_to}</span>}
-                      {job.total > 0 && <span className="text-yellow-400 font-semibold">N${job.total?.toFixed(2)}</span>}
+                    <div className="flex items-center gap-2 ml-4">
+                      <button onClick={() => openDuplicate(job)} className="p-2 text-gray-400 hover:text-blue-400">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                      </button>
+                      <button onClick={() => openEdit(job)} className="p-2 text-gray-400 hover:text-yellow-400">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                      </button>
+                      <button onClick={() => handleDelete(job.id)} className="p-2 text-gray-400 hover:text-red-400">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 ml-4">
-                    <button onClick={() => openDuplicate(job)} title="Duplicate" className="p-2 text-gray-400 hover:text-blue-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                    </button>
-                    <button onClick={() => openEdit(job)} className="p-2 text-gray-400 hover:text-yellow-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                    </button>
-                    <button onClick={() => handleDelete(job.id)} className="p-2 text-gray-400 hover:text-red-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
       </div>
 
       {showForm && (
@@ -265,51 +262,41 @@ export default function RetailPage() {
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Retailer</label>
-                  <select value={form.retailer} onChange={e => setForm(f => ({ ...f, retailer: e.target.value }))}
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                  <select value={form.retailer} onChange={e => setForm(f => ({ ...f, retailer: e.target.value }))} className={sel}>
                     {RETAILERS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Branch</label>
-                  <select value={form.branch_name} onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                  <select value={form.branch_name} onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))} className={sel}>
                     <option value="">— Select Branch —</option>
                     {branches.map(b => <option key={b} value={b}>{b}</option>)}
                     <option value="custom">Other (type below)</option>
                   </select>
                   {form.branch_name === 'custom' && (
-                    <input placeholder="Type branch name..."
-                      onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))}
-                      className="mt-2 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                    <input placeholder="Type branch name..." onChange={e => setForm(f => ({ ...f, branch_name: e.target.value }))} className={inp + " mt-2"} />
                   )}
                 </div>
               </div>
-
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Contact Name</label>
-                  <input value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
-                    placeholder="Contact person"
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500" />
+                  <input value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))} placeholder="Contact person" className={inp} />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Assigned Worker</label>
-                  <select value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                  <select value={form.worker} onChange={e => setForm(f => ({ ...f, worker: e.target.value }))} className={sel}>
                     <option value="">— Unassigned —</option>
                     {WORKERS.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
-                  <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                    className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                  <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className={sel}>
                     <option value="pending">Pending</option>
                     <option value="designing">Designing</option>
                     <option value="printing">Printing</option>
@@ -318,19 +305,14 @@ export default function RetailPage() {
                   </select>
                 </div>
               </div>
-
               <div>
                 <label className="text-xs text-gray-400 uppercase tracking-wide">Notes</label>
-                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={2} placeholder="Internal notes..."
-                  className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 resize-none" />
+                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Internal notes..." className={inp + " resize-none"} />
               </div>
-
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Line Items</label>
-                  <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])}
-                    className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">+ Add Item</button>
+                  <button type="button" onClick={() => setLineItems(i => [...i, createLineItem()])} className="text-xs text-yellow-400 hover:text-yellow-300 font-medium">+ Add Item</button>
                 </div>
                 <div className="bg-gray-800 border border-gray-700 rounded-xl p-3">
                   <SmartLineItemHeader />
@@ -346,17 +328,11 @@ export default function RetailPage() {
                   <div className="flex justify-between text-white font-bold text-base border-t border-gray-700 pt-2 mt-2"><span>TOTAL</span><span>N${total.toFixed(2)}</span></div>
                 </div>
               </div>
-
-              {saveError && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">{saveError}</div>
-              )}
+              {saveError && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">{saveError}</div>}
             </div>
-
             <div className="flex gap-3 p-6 border-t border-gray-700">
-              <button onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition-colors">Cancel</button>
-              <button onClick={handleSave} disabled={saving}
-                className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg transition-colors">
+              <button onClick={() => setShowForm(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg">Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black font-semibold py-2.5 rounded-lg">
                 {saving ? 'Saving...' : editJob ? 'Save Changes' : 'Create Retail Job'}
               </button>
             </div>

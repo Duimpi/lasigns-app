@@ -35,7 +35,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [clients, setClients] = useState<{ id: string; name: string; phone: string | null }[]>([]);
+  const [selectedPhone, setSelectedPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editQuote, setEditQuote] = useState<Quote | null>(null);
@@ -96,8 +97,14 @@ export default function QuotesPage() {
   }
 
   async function loadClients() {
-    const { data } = await supabase.from('clients').select('id, name').order('name');
-    if (data) setClients(data);
+    const { data: clientData } = await supabase.from('clients').select('id, name, phone').order('name');
+    const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
+    if (clientData) {
+      setClients(clientData.map((c: any) => ({
+        ...c,
+        phone: c.phone || (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
+      })));
+    }
   }
 
   const filteredClients = clients.filter(c =>
@@ -105,9 +112,10 @@ export default function QuotesPage() {
     c.name.toLowerCase().includes(clientSearch.toLowerCase())
   ).slice(0, 8);
 
-  function selectClient(client: { id: string; name: string }) {
+  function selectClient(client: { id: string; name: string; phone: string | null }) {
     setForm(f => ({ ...f, client_id: client.id, client_name: client.name }));
     setClientSearch(client.name);
+    setSelectedPhone(client.phone || '');
     setClientDropdown(false);
   }
 
@@ -115,6 +123,7 @@ export default function QuotesPage() {
     setEditQuote(null);
     setForm({ client_id: '', client_name: '', title: '', notes: '', status: 'draft', valid_until: '' });
     setClientSearch('');
+    setSelectedPhone('');
     setLineItems([createLineItem()]);
     setSaveError('');
     setShowForm(true);
@@ -294,13 +303,15 @@ export default function QuotesPage() {
                       placeholder="Type client name..."
                       className="w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500"
                     />
+                    {selectedPhone && <p className="text-xs text-gray-500 mt-1 ml-1">📞 {selectedPhone}</p>}
                     {clientDropdown && filteredClients.length > 0 && (
                       <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                         {filteredClients.map(c => (
                           <button key={c.id} type="button"
                             onMouseDown={e => { e.preventDefault(); selectClient(c); }}
-                            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-700 border-b border-gray-700 last:border-0">
-                            {c.name}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-700 border-b border-gray-700 last:border-0">
+                            <span className="text-white">{c.name}</span>
+                            {c.phone && <span className="text-gray-400 text-xs ml-2">{c.phone}</span>}
                           </button>
                         ))}
                       </div>
