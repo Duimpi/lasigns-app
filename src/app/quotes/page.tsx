@@ -279,7 +279,7 @@ export default function QuotesPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-gray-700">
               <h2 className="text-white font-bold text-lg">{editQuote ? 'Edit Quote' : 'New Quote'}</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-white">
@@ -287,7 +287,7 @@ export default function QuotesPage() {
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-4">
                 {/* Client name with autofill */}
                 <div>
@@ -306,7 +306,7 @@ export default function QuotesPage() {
                     />
                     {selectedPhone && <p className="text-xs text-gray-500 mt-1 ml-1">📞 {selectedPhone}</p>}
                     {clientDropdown && filteredClients.length > 0 && (
-                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      <div className="absolute z-[200] top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                         {filteredClients.map(c => (
                           <button key={c.id} type="button"
                             onMouseDown={e => { e.preventDefault(); selectClient(c); }}
