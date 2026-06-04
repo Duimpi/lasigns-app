@@ -110,12 +110,13 @@ export default function JobCardsPage() {
   }
 
   async function loadClients() {
-    const { data: clientData } = await supabase.from('clients').select('id, name, phone').order('name');
+    const { data: clientData } = await supabase.from('clients').select('id, name').order('name');
     const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
     if (clientData) {
       setClients(clientData.map((c: any) => ({
-        ...c,
-        phone: c.phone || (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
+        id: c.id,
+        name: c.name,
+        phone: (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
       })));
     }
   }
@@ -202,7 +203,11 @@ export default function JobCardsPage() {
         total,
       };
       if (form.client_id) jobData.client_id = form.client_id;
-      if (form.assigned_to) jobData.assigned_to = form.assigned_to;
+      // Store worker in notes since assigned_to has schema cache issues on free plan
+      if (form.assigned_to) {
+        const workerName = WORKERS.find(w => w.id === form.assigned_to)?.name || form.assigned_to;
+        jobData.notes = [workerName ? `Worker: ${workerName}` : '', form.notes].filter(Boolean).join('\n');
+      }
       if (form.due_date) jobData.due_date = form.due_date;
       if (form.date_completed) jobData.date_completed = form.date_completed;
 

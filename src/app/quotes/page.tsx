@@ -97,12 +97,13 @@ export default function QuotesPage() {
   }
 
   async function loadClients() {
-    const { data: clientData } = await supabase.from('clients').select('id, name, phone').order('name');
+    const { data: clientData } = await supabase.from('clients').select('id, name').order('name');
     const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
     if (clientData) {
       setClients(clientData.map((c: any) => ({
-        ...c,
-        phone: c.phone || (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
+        id: c.id,
+        name: c.name,
+        phone: (phoneData || []).find((p: any) => p.client_id === c.id)?.phone || null,
       })));
     }
   }
