@@ -99,10 +99,10 @@ export default function JobCardsPage() {
           widthMm: '',
           heightMm: '',
           sqm: null,
-          qty: i.qty || 1,
+          qty: i.quantity || 1,
           unitPrice: i.unit_price || null,
           priceType: 'manual' as const,
-          total: i.total || 0,
+          total: i.line_total || 0,
         })),
       })));
     }
@@ -223,9 +223,9 @@ export default function JobCardsPage() {
         const itemsPayload = validItems.map(i => ({
           job_card_id: jobId,
           description: i.description,
-          qty: i.qty || 1,
+          quantity: i.qty || 1,
           unit_price: i.unitPrice || 0,
-          total: i.total || 0,
+          line_total: i.total || 0,
         }));
         const { error: itemError } = await supabase.from('job_card_items').insert(itemsPayload);
         if (itemError) console.warn('Items warning:', itemError.message);

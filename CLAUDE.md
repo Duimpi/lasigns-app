@@ -46,3 +46,30 @@ Every mistake must be added below.
 Problem:
 Root Cause:
 Prevention:
+
+## Critical Rules
+
+NEVER assume a file is empty because findstr returns nothing.
+
+Before modifying any file:
+
+1. Open the entire file.
+2. Show the first 50 lines.
+3. Show the last 50 lines.
+4. Explain what the file does.
+5. Wait for approval.
+
+Never generate a replacement page.tsx unless explicitly instructed.
+
+Never rebuild working pages.
+
+Fix only the affected component.
+
+Never use:
+- git update-index --assume-unchanged
+- git update-index --skip-worktree
+
+as a bug fix.
+
+These are not fixes.
+They only hide files from git.
