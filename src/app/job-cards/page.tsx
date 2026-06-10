@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
+import { PRICE_ITEMS } from '@/data/priceData'
 import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
@@ -623,15 +624,19 @@ function JobCardsPageInner() {
                   return (
                     <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
-                        <PriceAutocomplete
-  value={watchItems?.[i]?.description || ''}
-  onChange={val => setValue(`items.${i}.description`, val)}
-  onSelectPrice={(price, priceType) => {
-    setValue(`items.${i}.unit_price`, price)
-  }}
-  placeholder="Description"
-  className="input"
-/>
+                        <>
+  <input
+    {...register(`items.${i}.description`)}
+    list="price-items-list"
+    className="input"
+    placeholder="Description"
+  />
+  <datalist id="price-items-list">
+    {PRICE_ITEMS.map(item => (
+      <option key={item.id} value={item.label} />
+    ))}
+  </datalist>
+</>
                       </div>
                       <div className="col-span-3 flex items-center gap-1">
                         <input {...register(`items.${i}.width`)} className="input" placeholder="W" />
