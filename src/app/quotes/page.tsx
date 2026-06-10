@@ -454,11 +454,25 @@ function QuotesPageInner() {
                       <div
                         key={c.id}
                         className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                        onMouseDown={() => {
-                          setValue('client_id', c.id)
-                          setValue('client_name', c.name)
-                          setClientSearch('')
-                        }}
+                        onMouseDown={async () => {
+  setValue('client_id', c.id)
+  setValue('client_name', c.name)
+  setClientSearch('')
+  // Autofill address and email
+  const { data: clientDetail } = await supabase
+    .from('clients')
+    .select('address')
+    .eq('id', c.id)
+    .single()
+  if (clientDetail?.address) setValue('client_address', clientDetail.address)
+  const { data: emailData } = await supabase
+    .from('client_emails')
+    .select('email')
+    .eq('client_id', c.id)
+    .limit(1)
+    .single()
+  if (emailData?.email) setValue('client_email', emailData.email)
+}}
                       >
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
