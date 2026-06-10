@@ -17,6 +17,7 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
+import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import {
   Plus, Download, Mail, Printer, Trash2, X, ShoppingBag
 } from 'lucide-react'
@@ -773,7 +774,15 @@ function RetailPageInner() {
                   return (
                     <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
-                        <input {...register(`items.${i}.description`)} className="input" placeholder="Description" />
+                        <PriceAutocomplete
+  value={watchItems?.[i]?.description || ''}
+  onChange={val => setValue(`items.${i}.description`, val)}
+  onSelectPrice={(price, priceType) => {
+    setValue(`items.${i}.unit_price`, price)
+  }}
+  placeholder="Description"
+  className="input"
+/>
                       </div>
                       <div className="col-span-2">
                         <input {...register(`items.${i}.size`)} className="input" placeholder="Size" />

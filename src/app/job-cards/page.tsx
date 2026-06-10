@@ -16,6 +16,7 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
+import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
@@ -544,7 +545,11 @@ function JobCardsPageInner() {
                       <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
                         {filteredClients.map(c => (
                           <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                            onMouseDown={() => { setValue('client_id', c.id); setValue('client_name', c.name); setClientSearch('') }}>
+                            onMouseDown={async () => {
+  setValue('client_id', c.id)
+  setValue('client_name', c.name)
+  setClientSearch('')
+}}>
                             <p className="text-sm text-text-primary">{c.name}</p>
                             {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                           </div>
@@ -618,7 +623,15 @@ function JobCardsPageInner() {
                   return (
                     <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
-                        <input {...register(`items.${i}.description`)} className="input" placeholder="Description" />
+                        <PriceAutocomplete
+  value={watchItems?.[i]?.description || ''}
+  onChange={val => setValue(`items.${i}.description`, val)}
+  onSelectPrice={(price, priceType) => {
+    setValue(`items.${i}.unit_price`, price)
+  }}
+  placeholder="Description"
+  className="input"
+/>
                       </div>
                       <div className="col-span-3 flex items-center gap-1">
                         <input {...register(`items.${i}.width`)} className="input" placeholder="W" />

@@ -17,6 +17,7 @@ import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
+import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import {
   Plus, Lock, Unlock, Download, Mail, Printer,
   Trash2, ChevronRight, X, FileText
@@ -47,15 +48,7 @@ const quoteSchema = z.object({
 type QuoteFormData = z.infer<typeof quoteSchema>
 
 interface QuoteWithItems extends Quote {
-  items: {
-    id: string
-    description: string
-    quantity: number
-    unit_price: number
-    total: number
-    size?: string
-    sort_order: number
-  }[]
+  items: Quote['items']
 }
 
 function QuotesPageInner() {
@@ -547,7 +540,15 @@ function QuotesPageInner() {
                 return (
                   <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                     <div className="col-span-5">
-                      <input {...register(`items.${i}.description`)} className="input" placeholder="Description" />
+                      <PriceAutocomplete
+  value={watchItems?.[i]?.description || ''}
+  onChange={val => setValue(`items.${i}.description`, val)}
+  onSelectPrice={(price, priceType) => {
+    setValue(`items.${i}.unit_price`, price)
+  }}
+  placeholder="Description"
+  className="input"
+/>
                     </div>
                     <div className="col-span-2">
                       <input {...register(`items.${i}.size`)} className="input" placeholder="e.g. 1200×600mm" />
