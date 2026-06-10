@@ -17,12 +17,13 @@ const WORKERS = [
 ];
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  designing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  printing: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  ready: 'bg-green-500/20 text-green-400 border-green-500/30',
-  delivered: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
+  Pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  Designing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  Printing: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  Completed: 'bg-green-500/20 text-green-400 border-green-500/30',
+  Delivered: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  Urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
+  Installation: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
 };
 
 interface JobCard {
@@ -61,8 +62,8 @@ export default function JobCardsPage() {
     title: '',
     description: '',
     notes: '',
-    status: 'pending',
-    priority: 'normal',
+    status: 'Pending',
+    priority: 'Medium',
     assigned_to: '',
     due_date: '',
     date_completed: '',
@@ -110,7 +111,8 @@ export default function JobCardsPage() {
   }
 
   async function loadClients() {
-    const { data: clientData } = await supabase.from('clients').select('id, name').order('name');
+    const { data: clientData, error } = await supabase.from('clients').select('id, name').order('name');
+    if (error) { console.error('loadClients error:', error.message); return; }
     const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
     if (clientData) {
       setClients(clientData.map((c: any) => ({
@@ -134,7 +136,7 @@ export default function JobCardsPage() {
 
   function openNew() {
     setEditJob(null);
-    setForm({ client_id: '', client_name: '', title: '', description: '', notes: '', status: 'pending', priority: 'normal', assigned_to: '', due_date: '', date_completed: '' });
+    setForm({ client_id: '', client_name: '', title: '', description: '', notes: '', status: 'Pending', priority: 'Medium', assigned_to: '', due_date: '', date_completed: '' });
     setClientSearch('');
     setSelectedPhone('');
     setLineItems([createLineItem()]);
@@ -150,8 +152,8 @@ export default function JobCardsPage() {
       title: job.title || '',
       description: job.description || '',
       notes: job.notes || '',
-      status: job.status || 'pending',
-      priority: job.priority || 'normal',
+      status: job.status || 'Pending',
+      priority: job.priority || 'Medium',
       assigned_to: job.assigned_to || '',
       due_date: job.due_date || '',
       date_completed: job.date_completed || '',
@@ -170,8 +172,8 @@ export default function JobCardsPage() {
       title: job.title + ' (Copy)',
       description: job.description || '',
       notes: job.notes || '',
-      status: 'pending',
-      priority: job.priority || 'normal',
+      status: 'Pending',
+      priority: job.priority || 'Medium',
       assigned_to: job.assigned_to || '',
       due_date: '',
       date_completed: '',
@@ -191,24 +193,29 @@ export default function JobCardsPage() {
     setSaving(true);
     setSaveError('');
     try {
+      // Build notes to include client name and worker as fallback
+      const workerName = WORKERS.find(w => w.id === form.assigned_to)?.name || '';
+      const notesContent = [
+        form.client_name ? `Client: ${form.client_name}` : '',
+        workerName ? `Worker: ${workerName}` : '',
+        form.notes || '',
+      ].filter(Boolean).join('\n');
+
       const jobData: any = {
-        client_name: form.client_name,
         title: form.title,
         description: form.description,
-        notes: form.notes,
+        notes: notesContent,
         status: form.status,
         priority: form.priority,
-        subtotal,
-        vat_amount: vat,
-        total,
       };
+      // Add optional fields only if they have values
       if (form.client_id) jobData.client_id = form.client_id;
-      // Store worker in notes since assigned_to has schema cache issues on free plan
-      if (form.assigned_to) {
-        const workerName = WORKERS.find(w => w.id === form.assigned_to)?.name || form.assigned_to;
-        jobData.notes = [workerName ? `Worker: ${workerName}` : '', form.notes].filter(Boolean).join('\n');
-      }
       if (form.due_date) jobData.due_date = form.due_date;
+      // Add new columns gracefully - schema cache may not see them yet
+      jobData.client_name = form.client_name;
+      jobData.subtotal = subtotal;
+      jobData.vat_amount = vat;
+      jobData.total = total;
       if (form.date_completed) jobData.date_completed = form.date_completed;
 
       let jobId: string;
@@ -277,12 +284,12 @@ export default function JobCardsPage() {
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
             <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="designing">Designing</option>
-            <option value="printing">Printing</option>
-            <option value="ready">Ready</option>
-            <option value="delivered">Delivered</option>
-            <option value="urgent">Urgent</option>
+            <option value="Pending">Pending</option>
+            <option value="Designing">Designing</option>
+            <option value="Printing">Printing</option>
+            <option value="Completed">Completed</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Urgent">Urgent</option>
           </select>
         </div>
 
@@ -379,21 +386,21 @@ export default function JobCardsPage() {
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
                   <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
-                    <option value="pending">Pending</option>
-                    <option value="designing">Designing</option>
-                    <option value="printing">Printing</option>
-                    <option value="ready">Ready</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="urgent">Urgent</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Designing">Designing</option>
+                    <option value="Printing">Printing</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Delivered">Delivered</option>
+                    <option value="Urgent">Urgent</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Priority</label>
                   <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
-                    <option value="normal">Normal</option>
-                    <option value="urgent">Urgent</option>
-                    <option value="low">Low</option>
+                    <option value="Medium">Normal</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="Low">Low</option>
                   </select>
                 </div>
                 <div>

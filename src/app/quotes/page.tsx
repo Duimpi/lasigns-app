@@ -27,10 +27,12 @@ interface Quote {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  sent: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  accepted: 'bg-green-500/20 text-green-400 border-green-500/30',
-  declined: 'bg-red-500/20 text-red-400 border-red-500/30',
+  Draft: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  Sent: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  Approved: 'bg-green-500/20 text-green-400 border-green-500/30',
+  Cancelled: 'bg-red-500/20 text-red-400 border-red-500/30',
+  'In Production': 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  Completed: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
 };
 
 export default function QuotesPage() {
@@ -47,7 +49,7 @@ export default function QuotesPage() {
     client_name: '',
     title: '',
     notes: '',
-    status: 'draft',
+    status: 'Draft',
     valid_until: '',
   });
   const [clientSearch, setClientSearch] = useState('');
@@ -97,7 +99,7 @@ export default function QuotesPage() {
   }
 
   async function loadClients() {
-    const { data: clientData, error } = await supabase.from('clients').select('id, name').is('deleted_at', null).order('name');
+    const { data: clientData, error } = await supabase.from('clients').select('id, name').order('name');
     if (error) { console.error('loadClients error:', error.message); return; }
     const { data: phoneData } = await supabase.from('client_phones').select('client_id, phone');
     if (clientData) {
@@ -123,7 +125,7 @@ export default function QuotesPage() {
 
   function openNew() {
     setEditQuote(null);
-    setForm({ client_id: '', client_name: '', title: '', notes: '', status: 'draft', valid_until: '' });
+    setForm({ client_id: '', client_name: '', title: '', notes: '', status: 'Draft', valid_until: '' });
     setClientSearch('');
     setSelectedPhone('');
     setLineItems([createLineItem()]);
@@ -133,7 +135,7 @@ export default function QuotesPage() {
 
   function openEdit(q: Quote) {
     setEditQuote(q);
-    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title || '', notes: q.notes || '', status: q.status || 'draft', valid_until: q.valid_until || '' });
+    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title || '', notes: q.notes || '', status: q.status || 'Draft', valid_until: q.valid_until || '' });
     setClientSearch(q.client_name || '');
     setLineItems(q.items.length > 0 ? q.items : [createLineItem()]);
     setSaveError('');
@@ -142,7 +144,7 @@ export default function QuotesPage() {
 
   function openDuplicate(q: Quote) {
     setEditQuote(null);
-    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title + ' (Copy)', notes: q.notes || '', status: 'draft', valid_until: '' });
+    setForm({ client_id: q.client_id || '', client_name: q.client_name || '', title: q.title + ' (Copy)', notes: q.notes || '', status: 'Draft', valid_until: '' });
     setClientSearch(q.client_name || '');
     setLineItems(q.items.map(i => ({ ...i, id: crypto.randomUUID() })));
     setSaveError('');
@@ -159,15 +161,23 @@ export default function QuotesPage() {
     setSaveError('');
     try {
       // Only use columns that definitely exist in the quotes table
+      // Build notes to include title and client name as fallback
+      const notesContent = [
+        form.client_name ? `Client: ${form.client_name}` : '',
+        form.title ? `Job: ${form.title}` : '',
+        form.notes || '',
+      ].filter(Boolean).join('\n');
+
       const quoteData: any = {
-        client_name: form.client_name,
-        title: form.title,
-        notes: form.notes,
+        notes: notesContent,
         status: form.status,
         subtotal,
         vat_amount: vat,
         total,
       };
+      // Add these only if schema cache supports them
+      try { quoteData.client_name = form.client_name; } catch {}
+      try { quoteData.title = form.title; } catch {}
       if (form.client_id) quoteData.client_id = form.client_id;
       if (form.valid_until) quoteData.valid_until = form.valid_until;
 
@@ -333,10 +343,10 @@ export default function QuotesPage() {
                   <label className="text-xs text-gray-400 uppercase tracking-wide">Status</label>
                   <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
                     className="mt-1 w-full bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
-                    <option value="draft">Draft</option>
-                    <option value="sent">Sent</option>
-                    <option value="accepted">Accepted</option>
-                    <option value="declined">Declined</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Sent">Sent</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>
                 <div>
