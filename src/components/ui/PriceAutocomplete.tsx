@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { PRICE_ITEMS } from '@/data/priceData';
 
 interface Props {
@@ -14,24 +14,15 @@ interface Props {
 export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder = 'Description', className = '' }: Props) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
-  const [localValue, setLocalValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const skipSyncRef = useRef(false);
+  const isFocused = useRef(false);
 
-  // Only sync from parent if we didn't just update it ourselves
-  useEffect(() => {
-    if (!skipSyncRef.current) {
-      setLocalValue(value);
-    }
-    skipSyncRef.current = false;
-  }, [value]);
-
-  const results = localValue.length >= 2
+  const results = value.length >= 2
     ? PRICE_ITEMS.filter(item =>
-        item.label.toLowerCase().includes(localValue.toLowerCase()) ||
-        item.category.toLowerCase().includes(localValue.toLowerCase()) ||
-        item.description.toLowerCase().includes(localValue.toLowerCase())
+        item.label.toLowerCase().includes(value.toLowerCase()) ||
+        item.category.toLowerCase().includes(value.toLowerCase()) ||
+        item.description.toLowerCase().includes(value.toLowerCase())
       ).slice(0, 10)
     : [];
 
@@ -48,23 +39,13 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const handleChange = useCallback((val: string) => {
-    skipSyncRef.current = true;
-    setLocalValue(val);
-    onChange(val);
-    setOpen(val.length >= 2);
-    setHighlighted(0);
-  }, [onChange]);
-
-  const handleSelect = useCallback((item: typeof PRICE_ITEMS[0]) => {
-    skipSyncRef.current = true;
-    setLocalValue(item.label);
+  function handleSelect(item: typeof PRICE_ITEMS[0]) {
     onChange(item.label);
     onSelectPrice(item.price, item.priceType);
     setOpen(false);
-    // Keep focus on input after selection
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, [onChange, onSelectPrice]);
+    // Restore focus after selection
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!open || results.length === 0) return;
@@ -79,9 +60,19 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
       <input
         ref={inputRef}
         type="text"
-        value={localValue}
-        onChange={e => handleChange(e.target.value)}
-        onFocus={() => { if (localValue.length >= 2 && results.length > 0) setOpen(true); }}
+        value={value}
+        onChange={e => {
+          onChange(e.target.value);
+          setOpen(e.target.value.length >= 2);
+          setHighlighted(0);
+        }}
+        onFocus={() => {
+          isFocused.current = true;
+          if (value.length >= 2 && results.length > 0) setOpen(true);
+        }}
+        onBlur={() => {
+          isFocused.current = false;
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
@@ -94,7 +85,10 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
           {results.map((item, i) => (
             <div
               key={item.id}
-              onMouseDown={e => { e.preventDefault(); handleSelect(item); }}
+              onMouseDown={e => {
+                e.preventDefault();
+                handleSelect(item);
+              }}
               className={`px-3 py-2 cursor-pointer border-b border-border last:border-0 ${i === highlighted ? 'bg-bg-hover' : 'hover:bg-bg-hover'}`}
             >
               <p className="text-sm text-text-primary truncate">{item.label}</p>
