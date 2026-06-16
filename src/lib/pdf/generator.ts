@@ -23,6 +23,8 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
 
   // ── LOGO (top left) ───────────────────────────────────────
   try {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xOffset + m + 1, y + 1, 40, 22, 'F')
     doc.addImage(LOGO_BASE64, 'PNG', xOffset + m + 1, y + 1, 40, 22)
   } catch {
     doc.setFontSize(10)
