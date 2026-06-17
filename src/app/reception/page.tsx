@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'collection' | 'outstanding' | 'walkin' | 'walkin_list'
+type Tab = 'collection' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
 
 interface PayableItem {
   id: string
@@ -54,6 +54,7 @@ function ReceptionPageInner() {
   const [payNote, setPayNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [showCollected, setShowCollected] = useState(false)
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([])
 
   // Walk-in
   const [walkinName, setWalkinName] = useState('')
@@ -109,6 +110,16 @@ function ReceptionPageInner() {
         .limit(50)
       setWalkinList(wiData || [])
 
+      // Payment history - job cards and quotes with PAID notes
+      const { data: histData } = await supabase
+        .from('job_cards')
+        .select('id, job_number, title, client_name, total, notes, updated_at')
+        .like('notes', 'PAID:%')
+        .not('job_number', 'like', 'WI-%')
+        .order('updated_at', { ascending: false })
+        .limit(50)
+      setPaymentHistory(histData || [])
+
     } finally { setIsLoading(false) }
   }
 
@@ -161,6 +172,7 @@ function ReceptionPageInner() {
 
       toast.success(newStatus === 'paid' ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
       setPayingItem(null); setPayAmount(''); setPayNote('')
+      setTab('history')
       loadData()
     } catch (err: any) { toast.error(`Failed: ${err.message}`) }
     finally { setIsSaving(false) }
@@ -305,6 +317,7 @@ function ReceptionPageInner() {
             { key: 'outstanding', label: '💳 Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
+            { key: 'history', label: '🕑 History', count: paymentHistory.length },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as Tab)}
               className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-2 ${
@@ -433,6 +446,49 @@ function ReceptionPageInner() {
                   </div>
                 )
               })}
+          </div>
+        )}
+
+        {/* HISTORY TAB */}
+        {tab === 'history' && (
+          <div className="space-y-3">
+            {paymentHistory.length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No payment history yet</div>
+            ) : paymentHistory.map(item => {
+              // Parse payment info from notes
+              const amountMatch = item.notes?.match(/PAID: N\\$([\d.]+)/)
+              const methodMatch = item.notes?.match(/\((cash|card|eft)\)/)
+              const noteMatch = item.notes?.match(/\) - (.+?) on /)
+              const dateMatch = item.notes?.match(/on (.+)$/)
+              return (
+                <div key={item.id} className="card p-4 border-l-4 border-emerald-500">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        {methodMatch && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                            methodMatch[1] === 'cash' ? 'bg-emerald-500/20 text-emerald-300' :
+                            methodMatch[1] === 'card' ? 'bg-blue-500/20 text-blue-300' :
+                            'bg-purple-500/20 text-purple-300'
+                          }`}>{methodMatch[1]}</span>
+                        )}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-emerald-500/20 text-emerald-300">Paid</span>
+                      </div>
+                      <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
+                      <p className="text-xs text-text-muted mt-0.5 truncate">{item.title}</p>
+                      {noteMatch && <p className="text-xs text-text-muted mt-0.5">Note: {noteMatch[1]}</p>}
+                      {dateMatch && <p className="text-[11px] text-text-muted mt-1">{dateMatch[1]}</p>}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-emerald-400">
+                        N${amountMatch ? amountMatch[1] : item.total}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
 
