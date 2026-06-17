@@ -152,12 +152,15 @@ function ReceptionPageInner() {
     setIsSaving(true)
     try {
       const amount = parseFloat(payAmount)
-      const newStatus = amount >= payingItem.total ? 'paid' : 'partial'
+      const fullyPaid = amount >= payingItem.total
       const table = payingItem.type === 'quote' ? 'quotes' : 'job_cards'
       const paymentNote = `PAID: N$${amount} (${payMethod})${payNote ? ' - ' + payNote : ''} on ${new Date().toLocaleDateString()}`
-      const { error } = await supabase.from(table).update({
-        notes: paymentNote,
-      }).eq('id', payingItem.id)
+      const updatePayload: any = { notes: paymentNote }
+      // Remove from outstanding by changing status to delivered when fully paid
+      if (fullyPaid) {
+        updatePayload.status = 'delivered'
+      }
+      const { error } = await supabase.from(table).update(updatePayload).eq('id', payingItem.id)
       if (error) throw error
 
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
@@ -170,7 +173,7 @@ function ReceptionPageInner() {
         })))
       }
 
-      toast.success(newStatus === 'paid' ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
+      toast.success(fullyPaid ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
       setPayingItem(null); setPayAmount(''); setPayNote('')
       setTab('history')
       loadData()
