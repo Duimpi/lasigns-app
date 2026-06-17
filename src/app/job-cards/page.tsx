@@ -378,9 +378,28 @@ function JobCardsPageInner() {
 
   async function emailJobCard(job: JobWithItems) {
     const doc = generateJobCardPDF(job as any)
-    const pdfBlob = doc.output('blob')
-    downloadBlob(pdfBlob, `${job.job_number}.pdf`)
-    toast.success(`PDF downloaded — attach to email and send to baganiholdings@gmail.com`, { duration: 6000 })
+    const pdfBase64 = doc.output('datauristring').split(',')[1]
+    const toastId = toast.loading('Sending email...')
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfBase64,
+          fileName: `${job.job_number}.pdf`,
+          subject: `Job Card ${job.job_number} — ${job.client_name || job.title}`,
+          clientName: job.client_name || job.title,
+          type: 'jobcard',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      toast.dismiss(toastId)
+      toast.success('Email sent to admin@lasigns.com.na ✅')
+    } catch (err: any) {
+      toast.dismiss(toastId)
+      toast.error(`Email failed: ${err.message}`)
+    }
   }
 
   function togglePrintSelect(jobId: string) {

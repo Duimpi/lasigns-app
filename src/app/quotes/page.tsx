@@ -314,8 +314,28 @@ function QuotesPageInner() {
 
   async function emailQuote(quote: QuoteWithItems) {
     const doc = generateQuotePDF(quote)
-    doc.save(`${quote.quote_number}.pdf`)
-    toast('PDF ready — please attach manually to email for now', { icon: '📧' })
+    const pdfBase64 = doc.output('datauristring').split(',')[1]
+    const toastId = toast.loading('Sending email...')
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfBase64,
+          fileName: `${quote.quote_number}.pdf`,
+          subject: `Quote ${quote.quote_number} — ${quote.client_name || 'Client'}`,
+          clientName: quote.client_name || 'Client',
+          type: 'quote',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      toast.dismiss(toastId)
+      toast.success('Email sent to admin@lasigns.com.na ✅')
+    } catch (err: any) {
+      toast.dismiss(toastId)
+      toast.error(`Email failed: ${err.message}`)
+    }
   }
 
   const filteredClients = clients.filter(c =>

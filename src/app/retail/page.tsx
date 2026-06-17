@@ -415,8 +415,28 @@ function RetailPageInner() {
 
   async function emailWorkerPDF(job: RetailJob) {
     const doc = generateJobCardPDF(job as any, false)
-    doc.save(`${job.job_number}-worker.pdf`)
-    toast('Worker PDF (no prices) saved — attach to email for baganiholdings@gmail.com', { icon: '📧' })
+    const pdfBase64 = doc.output('datauristring').split(',')[1]
+    const toastId = toast.loading('Sending email...')
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfBase64,
+          fileName: `${job.job_number}-retail.pdf`,
+          subject: `Retail Job ${job.job_number} — ${job.store} ${job.branch || ''} — ${job.client_name || job.title}`,
+          clientName: job.client_name || job.title,
+          type: 'retail',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      toast.dismiss(toastId)
+      toast.success('Email sent to admin@lasigns.com.na ✅')
+    } catch (err: any) {
+      toast.dismiss(toastId)
+      toast.error(`Email failed: ${err.message}`)
+    }
   }
 
   const filteredClients = clients.filter(c =>
