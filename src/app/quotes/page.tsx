@@ -18,10 +18,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
-import { PRICE_ITEMS } from '@/data/priceData'
 import {
-  Plus, Lock, Unlock, Download, Mail, Printer,
-  Trash2, ChevronRight, X, FileText
+  Plus, Lock, Unlock, Download, Mail,
+  Trash2, X, FileText
 } from 'lucide-react'
 import type { Quote, QuoteStatus, Client } from '@/types'
 
@@ -31,7 +30,8 @@ const lineItemSchema = z.object({
   description: z.string().default(''),
   quantity: z.coerce.number().default(1),
   unit_price: z.coerce.number().default(0),
-  size: z.string().optional().default(''),
+  width: z.string().optional().default(''),
+  height: z.string().optional().default(''),
 })
 
 const quoteSchema = z.object({
@@ -74,7 +74,7 @@ function QuotesPageInner() {
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     },
   })
 
@@ -82,14 +82,12 @@ function QuotesPageInner() {
   const watchItems = watch('items')
   const watchVatRate = watch('vat_rate')
 
-  // Calculate totals
   const subtotal = watchItems?.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0) || 0
   const vatAmount = subtotal * (watchVatRate / 100)
   const total = subtotal + vatAmount
 
   useEffect(() => { loadQuotes(); loadClients() }, [])
 
-  // Handle URL params for opening specific quote
   useEffect(() => {
     const openId = searchParams.get('open')
     const isNew = searchParams.get('new')
@@ -100,7 +98,6 @@ function QuotesPageInner() {
     }
   }, [searchParams, quotes.length])
 
-  // Realtime
   useEffect(() => {
     const channel = supabase
       .channel('quotes-changes')
@@ -142,10 +139,7 @@ function QuotesPageInner() {
   }
 
   async function loadClients() {
-    const { data } = await supabase
-      .from('clients')
-      .select('id, name, company')
-      .order('name')
+    const { data } = await supabase.from('clients').select('id, name, company').order('name')
     setClients((data as Client[]) || [])
   }
 
@@ -154,7 +148,7 @@ function QuotesPageInner() {
     reset({
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
     router.push('/quotes')
@@ -176,9 +170,10 @@ function QuotesPageInner() {
             description: i.description,
             quantity: i.quantity,
             unit_price: i.unit_price,
-            size: i.size || '',
+            width: i.size?.split('x')[0] || '',
+            height: i.size?.split('x')[1] || '',
           }))
-        : [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
   }
@@ -234,14 +229,14 @@ function QuotesPageInner() {
 
       if (data.items.length > 0) {
         await supabase.from('quote_items').insert(
-          data.items.map((item, i) => ({
+          data.items.map((item, idx) => ({
             quote_id: quoteId,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
             total: item.quantity * item.unit_price,
-            size: item.size || null,
-            sort_order: i,
+            size: item.width && item.height ? `${item.width}x${item.height}` : null,
+            sort_order: idx,
           }))
         )
       }
@@ -265,19 +260,10 @@ function QuotesPageInner() {
   }
 
   async function handleToggleLock(quote: QuoteWithItems) {
-    if (profile?.role !== 'admin') {
-      toast.error('Only admins can lock/unlock quotes')
-      return
-    }
-    const { error } = await supabase
-      .from('quotes')
-      .update({ is_locked: !quote.is_locked })
-      .eq('id', quote.id)
+    if (profile?.role !== 'admin') { toast.error('Only admins can lock/unlock quotes'); return }
+    const { error } = await supabase.from('quotes').update({ is_locked: !quote.is_locked }).eq('id', quote.id)
     if (error) toast.error('Failed to update lock')
-    else {
-      toast.success(quote.is_locked ? 'Quote unlocked' : 'Quote locked')
-      loadQuotes()
-    }
+    else { toast.success(quote.is_locked ? 'Quote unlocked' : 'Quote locked'); loadQuotes() }
   }
 
   async function handleDelete() {
@@ -300,8 +286,6 @@ function QuotesPageInner() {
   }
 
   async function emailQuote(quote: QuoteWithItems) {
-    toast.success('Preparing email...')
-    // TODO: integrate with email API route
     const doc = generateQuotePDF(quote)
     doc.save(`${quote.quote_number}.pdf`)
     toast('PDF ready — please attach manually to email for now', { icon: '📧' })
@@ -318,8 +302,7 @@ function QuotesPageInner() {
         subtitle={`${filtered.length} quotes`}
         actions={
           <button onClick={openCreate} className="btn-primary btn-sm">
-            <Plus className="w-4 h-4" />
-            New Quote
+            <Plus className="w-4 h-4" /> New Quote
           </button>
         }
       />
@@ -329,13 +312,10 @@ function QuotesPageInner() {
           <SearchInput value={search} onChange={setSearch} placeholder="Search quotes..." className="max-w-xs" />
           <div className="flex gap-1">
             {['all', ...STATUSES].map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
+              <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
-                }`}
-              >
+                }`}>
                 {s === 'all' ? 'All' : s.replace('_', ' ')}
               </button>
             ))}
@@ -353,14 +333,9 @@ function QuotesPageInner() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Quote #</th>
-                  <th>Client</th>
-                  <th>Status</th>
-                  <th>Subtotal</th>
-                  <th>VAT</th>
-                  <th>Total</th>
-                  <th>Date</th>
-                  <th className="w-24">Actions</th>
+                  <th>Quote #</th><th>Client</th><th>Status</th>
+                  <th>Subtotal</th><th>VAT</th><th>Total</th>
+                  <th>Date</th><th className="w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -380,20 +355,14 @@ function QuotesPageInner() {
                     <td className="text-text-muted text-sm">{formatDate(quote.created_at)}</td>
                     <td>
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF">
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email">
-                          <Mail className="w-3.5 h-3.5" />
-                        </button>
+                        <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
                           <>
                             <button onClick={() => handleToggleLock(quote)} className="btn-icon" title={quote.is_locked ? 'Unlock' : 'Lock'}>
                               {quote.is_locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                             </button>
-                            <button onClick={() => setDeleteTarget(quote)} className="btn-icon text-red-400/50 hover:text-red-400">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <button onClick={() => setDeleteTarget(quote)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                           </>
                         )}
                       </div>
@@ -406,25 +375,18 @@ function QuotesPageInner() {
         </div>
       </div>
 
-      {/* Quote Form Modal */}
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
         title={editingQuote ? `Edit — ${editingQuote.quote_number}` : 'New Quotation'}
         size="xl"
         preventOutsideClose={true}
-        actions={
-          editingQuote && (
-            <div className="flex gap-2">
-              <button onClick={() => downloadPDF(editingQuote)} className="btn-secondary btn-sm">
-                <Download className="w-3.5 h-3.5" /> PDF
-              </button>
-              <button onClick={() => emailQuote(editingQuote)} className="btn-secondary btn-sm">
-                <Mail className="w-3.5 h-3.5" /> Email
-              </button>
-            </div>
-          )
-        }
+        actions={editingQuote && (
+          <div className="flex gap-2">
+            <button onClick={() => downloadPDF(editingQuote)} className="btn-secondary btn-sm"><Download className="w-3.5 h-3.5" /> PDF</button>
+            <button onClick={() => emailQuote(editingQuote)} className="btn-secondary btn-sm"><Mail className="w-3.5 h-3.5" /> Email</button>
+          </div>
+        )}
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Client section */}
@@ -437,37 +399,21 @@ function QuotesPageInner() {
                   {...register('client_name')}
                   className="input"
                   placeholder="Search or type client name..."
-                  onChange={(e) => {
-                    register('client_name').onChange(e)
-                    setClientSearch(e.target.value)
-                  }}
+                  onChange={(e) => { register('client_name').onChange(e); setClientSearch(e.target.value) }}
                 />
                 {clientSearch && filteredClients.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
                     {filteredClients.map(c => (
-                      <div
-                        key={c.id}
-                        className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
+                      <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
                         onMouseDown={async () => {
-  setValue('client_id', c.id)
-  setValue('client_name', c.name)
-  setClientSearch('')
-  // Autofill address and email
-  const { data: clientDetail } = await supabase
-    .from('clients')
-    .select('address')
-    .eq('id', c.id)
-    .single()
-  if (clientDetail?.address) setValue('client_address', clientDetail.address)
-  const { data: emailData } = await supabase
-    .from('client_emails')
-    .select('email')
-    .eq('client_id', c.id)
-    .limit(1)
-    .single()
-  if (emailData?.email) setValue('client_email', emailData.email)
-}}
-                      >
+                          setValue('client_id', c.id)
+                          setValue('client_name', c.name)
+                          setClientSearch('')
+                          const { data: cd } = await supabase.from('clients').select('address').eq('id', c.id).single()
+                          if (cd?.address) setValue('client_address', cd.address)
+                          const { data: ed } = await supabase.from('client_emails').select('email').eq('client_id', c.id).limit(1).single()
+                          if (ed?.email) setValue('client_email', ed.email)
+                        }}>
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                       </div>
@@ -492,18 +438,12 @@ function QuotesPageInner() {
             <div>
               <label className="label">Status</label>
               <select {...register('status')} className="input">
-                {STATUSES.map(s => (
-                  <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>
-                ))}
+                {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>)}
               </select>
             </div>
             <div>
               <label className="label">VAT Rate (%)</label>
-              <input
-                {...register('vat_rate')}
-                type="number" step="0.01" min="0" max="100"
-                className="input"
-              />
+              <input {...register('vat_rate')} type="number" step="0.01" min="0" max="100" className="input" />
             </div>
             <div>
               <label className="label">Valid Until</label>
@@ -515,22 +455,20 @@ function QuotesPageInner() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">Line Items</h3>
-              <button
-                type="button"
-                onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, size: '' })}
-                className="btn-ghost btn-sm text-accent"
-              >
+              <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '' })}
+                className="btn-ghost btn-sm text-accent">
                 <Plus className="w-3.5 h-3.5" /> Add Item
               </button>
             </div>
 
-            {/* Table header */}
             <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted mb-2 px-1">
-              <div className="col-span-5">Description</div>
-              <div className="col-span-2">Size</div>
+              <div className="col-span-4">Description</div>
+              <div className="col-span-1">W (mm)</div>
+              <div className="col-span-1">H (mm)</div>
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit Price</div>
               <div className="col-span-1 text-right">Total</div>
+              <div className="col-span-1">m²</div>
               <div className="col-span-1"></div>
             </div>
 
@@ -538,25 +476,33 @@ function QuotesPageInner() {
               {itemFields.map((field, i) => {
                 const qty = Number(watchItems?.[i]?.quantity) || 0
                 const price = Number(watchItems?.[i]?.unit_price) || 0
+                const w = parseFloat(watchItems?.[i]?.width || '0') / 1000
+                const h = parseFloat(watchItems?.[i]?.height || '0') / 1000
+                const sqm = w && h ? (w * h).toFixed(4) : null
                 return (
                   <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-5">
-                      <>
-  <input
-    {...register(`items.${i}.description`)}
-    list="price-items-list"
-    className="input"
-    placeholder="Description"
-  />
-  <datalist id="price-items-list">
-    {PRICE_ITEMS.map(item => (
-      <option key={item.id} value={item.label} />
-    ))}
-  </datalist>
-</>
+                    <div className="col-span-4">
+                      <Controller
+                        control={control}
+                        name={`items.${i}.description`}
+                        render={({ field: descField }) => (
+                          <PriceAutocomplete
+                            value={descField.value}
+                            onChange={descField.onChange}
+                            onSelectPrice={(selectedPrice) => {
+                              setValue(`items.${i}.unit_price`, selectedPrice)
+                            }}
+                            placeholder="Description"
+                            className="input"
+                          />
+                        )}
+                      />
                     </div>
-                    <div className="col-span-2">
-                      <input {...register(`items.${i}.size`)} className="input" placeholder="e.g. 1200×600mm" />
+                    <div className="col-span-1">
+                      <input {...register(`items.${i}.width`)} className="input" placeholder="W" />
+                    </div>
+                    <div className="col-span-1">
+                      <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
                     </div>
                     <div className="col-span-1">
                       <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
@@ -566,6 +512,9 @@ function QuotesPageInner() {
                     </div>
                     <div className="col-span-1 text-right text-sm font-semibold text-text-primary">
                       {formatCurrency(qty * price)}
+                    </div>
+                    <div className="col-span-1 text-xs text-text-muted text-center">
+                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : '—'}
                     </div>
                     <div className="col-span-1 flex justify-end">
                       {itemFields.length > 1 && (
@@ -579,19 +528,15 @@ function QuotesPageInner() {
               })}
             </div>
 
-            {/* Totals */}
             <div className="mt-4 border-t border-border pt-4 space-y-1.5">
               <div className="flex justify-between text-sm text-text-secondary">
-                <span>Subtotal</span>
-                <span>{formatCurrency(subtotal)}</span>
+                <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex justify-between text-sm text-text-secondary">
-                <span>VAT ({watchVatRate}%)</span>
-                <span>{formatCurrency(vatAmount)}</span>
+                <span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5">
-                <span>TOTAL</span>
-                <span>{formatCurrency(total)}</span>
+                <span>TOTAL</span><span>{formatCurrency(total)}</span>
               </div>
             </div>
           </div>
@@ -616,9 +561,7 @@ function QuotesPageInner() {
         onConfirm={handleDelete}
         title="Delete Quote"
         message={`Delete quote ${deleteTarget?.quote_number}? This cannot be undone.`}
-        confirmLabel="Delete"
-        danger={true}
-        isLoading={isDeleting}
+        confirmLabel="Delete" danger={true} isLoading={isDeleting}
       />
     </AppShell>
   )
