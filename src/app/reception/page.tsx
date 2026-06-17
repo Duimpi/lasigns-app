@@ -9,7 +9,7 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   CreditCard, Banknote, Building2, CheckCircle2,
-  AlertCircle, Search, Plus, X, Package, PackageCheck
+  AlertCircle, Search, Plus, X, Package, PackageCheck, CheckCheck
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
@@ -34,6 +34,8 @@ interface CollectionItem {
   client_name: string
   total: number
   status: string
+  collection_status: string | null
+  is_retail: boolean
   created_at: string
 }
 
@@ -42,8 +44,8 @@ function ReceptionPageInner() {
   const [tab, setTab] = useState<Tab>('collection')
   const [items, setItems] = useState<PayableItem[]>([])
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([])
+  const [collectedItems, setCollectedItems] = useState<CollectionItem[]>([])
   const [walkinList, setWalkinList] = useState<any[]>([])
-  const [paidToday, setPaidToday] = useState<PayableItem[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [payingItem, setPayingItem] = useState<PayableItem | null>(null)
@@ -51,6 +53,7 @@ function ReceptionPageInner() {
   const [payAmount, setPayAmount] = useState('')
   const [payNote, setPayNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [showCollected, setShowCollected] = useState(false)
 
   // Walk-in
   const [walkinName, setWalkinName] = useState('')
@@ -71,16 +74,18 @@ function ReceptionPageInner() {
   async function loadData() {
     setIsLoading(true)
     try {
-      const today = new Date().toISOString().split('T')[0]
-
-      // Ready for collection - completed/delivered jobs not yet collected
+      // ALL completed/delivered jobs waiting for or already collected (both retail and non-retail)
       const { data: collData } = await supabase
         .from('job_cards')
-        .select('id, job_number, title, client_name, total, status, created_at')
-        .eq('status', 'completed')
+        .select('id, job_number, title, client_name, total, status, collection_status, is_retail, created_at')
+        .in('status', ['completed', 'delivered'])
         .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
-      setCollectionItems((collData || []) as CollectionItem[])
+
+      const pending = (collData || []).filter((j: any) => j.collection_status !== 'collected')
+      const collected = (collData || []).filter((j: any) => j.collection_status === 'collected')
+      setCollectionItems(pending as CollectionItem[])
+      setCollectedItems(collected as CollectionItem[])
 
       // Outstanding payments
       const [{ data: quotes }, { data: jobs }] = await Promise.all([
@@ -95,7 +100,7 @@ function ReceptionPageInner() {
         ...((jobs || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
 
-      // Walk-in list from job_cards with WI- prefix
+      // Walk-in list
       const { data: wiData } = await supabase
         .from('job_cards')
         .select('id, job_number, client_name, total, notes, created_at')
@@ -109,8 +114,8 @@ function ReceptionPageInner() {
 
   async function markCollected(item: CollectionItem) {
     const { error } = await supabase.from('job_cards').update({
-      status: 'delivered',
-      notes: `Collected on ${new Date().toLocaleDateString()} by ${profile?.full_name}`,
+      collection_status: 'collected',
+      collected_at: new Date().toISOString(),
     }).eq('id', item.id)
 
     if (error) { toast.error(`Failed: ${error.message}`); return }
@@ -136,14 +141,11 @@ function ReceptionPageInner() {
     setIsSaving(true)
     try {
       const amount = parseFloat(payAmount)
-      const newPaid = amount
       const newStatus = amount >= payingItem.total ? 'paid' : 'partial'
       const table = payingItem.type === 'quote' ? 'quotes' : 'job_cards'
-      // Store payment info in notes field (bypasses schema cache)
-      const paymentNote = `PAID: N$${newPaid} (${payMethod})${payNote ? ' - ' + payNote : ''} on ${new Date().toLocaleDateString()}`
+      const paymentNote = `PAID: N$${amount} (${payMethod})${payNote ? ' - ' + payNote : ''} on ${new Date().toLocaleDateString()}`
       const { error } = await supabase.from(table).update({
         notes: paymentNote,
-        status: newStatus === 'paid' ? 'delivered' : undefined,
       }).eq('id', payingItem.id)
       if (error) throw error
 
@@ -200,8 +202,6 @@ function ReceptionPageInner() {
     setIsSavingWalkin(true)
     try {
       const total = parseFloat(walkinAmount)
-
-      // Find or create client
       let clientId = walkinClientId
       if (!clientId) {
         const { data: existing } = await supabase.from('clients')
@@ -241,7 +241,6 @@ function ReceptionPageInner() {
       })
       if (error) throw error
 
-      // Notify admins
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
       if (admins && profile) {
         await supabase.from('notifications').insert(admins.map((a: any) => ({
@@ -278,7 +277,7 @@ function ReceptionPageInner() {
 
   return (
     <AppShell>
-      <PageHeader title="RECEPTION" subtitle="Collections & Payments — Michelle" />
+      <PageHeader title="RECEPTION" subtitle="Collections & Payments" />
       <div className="px-6 pb-6 space-y-4">
 
         {/* Summary cards */}
@@ -322,33 +321,76 @@ function ReceptionPageInner() {
         {/* COLLECTIONS TAB */}
         {tab === 'collection' && (
           <div className="space-y-3">
-            {isLoading ? <div className="card py-12 text-center text-text-muted">Loading...</div>
-              : collectionItems.length === 0 ? (
-                <div className="card py-12 text-center">
-                  <PackageCheck className="w-10 h-10 text-emerald-400 mx-auto mb-3 opacity-50" />
-                  <p className="text-text-muted">No orders waiting for collection</p>
-                </div>
-              ) : collectionItems.map(item => (
-                <div key={item.id} className="card p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">
-                          Ready
-                        </span>
+            {isLoading ? (
+              <div className="card py-12 text-center text-text-muted">Loading...</div>
+            ) : collectionItems.length === 0 ? (
+              <div className="card py-12 text-center">
+                <PackageCheck className="w-10 h-10 text-emerald-400 mx-auto mb-3 opacity-50" />
+                <p className="text-text-muted">No orders waiting for collection</p>
+              </div>
+            ) : (
+              <>
+                {collectionItems.map(item => (
+                  <div key={item.id} className="card p-4 border-l-4 border-blue-500">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">
+                            {item.status}
+                          </span>
+                          {item.is_retail && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-red-500/20 text-red-300">
+                              Retail
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
+                        <p className="text-sm text-text-muted mt-0.5 truncate">{item.title}</p>
+                        <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
                       </div>
-                      <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
-                      <p className="text-sm text-text-muted mt-0.5 truncate">{item.title}</p>
-                      <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
+                      <button
+                        onClick={() => markCollected(item)}
+                        className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm transition-colors"
+                      >
+                        <CheckCheck className="w-4 h-4" />
+                        Collected
+                      </button>
                     </div>
-                    <button onClick={() => markCollected(item)}
-                      className="btn-primary btn-sm shrink-0 flex items-center gap-1.5">
-                      <PackageCheck className="w-3.5 h-3.5" /> Collected
-                    </button>
                   </div>
-                </div>
-              ))}
+                ))}
+              </>
+            )}
+
+            {/* Show collected history toggle */}
+            {collectedItems.length > 0 && (
+              <div className="mt-4">
+                <button
+                  onClick={() => setShowCollected(!showCollected)}
+                  className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1 mb-3"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {showCollected ? 'Hide' : 'Show'} collected ({collectedItems.length})
+                </button>
+                {showCollected && collectedItems.map(item => (
+                  <div key={item.id} className="card p-4 border-l-4 border-emerald-500 opacity-60 mb-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-emerald-500/20 text-emerald-300">
+                            Collected ✓
+                          </span>
+                        </div>
+                        <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
+                        <p className="text-sm text-text-muted mt-0.5 truncate">{item.title}</p>
+                        <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -381,7 +423,7 @@ function ReceptionPageInner() {
                         <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
                         <div className="flex items-center gap-3 mt-1">
                           <span className="text-sm text-text-muted">Total: <span className="font-medium text-text-primary">{formatCurrency(item.total)}</span></span>
-                          <span className="text-sm text-text-muted">Amount: <span className="text-amber-400 font-bold">{formatCurrency(item.total)}</span></span>
+                          <span className="text-sm text-text-muted">Outstanding: <span className="text-amber-400 font-bold">{formatCurrency(outstanding)}</span></span>
                         </div>
                       </div>
                       <button onClick={() => { setPayingItem(item); setPayAmount(outstanding.toFixed(2)) }} className="btn-primary btn-sm shrink-0">
