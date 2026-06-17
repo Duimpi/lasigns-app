@@ -564,6 +564,15 @@ function QuotesPageInner() {
               <div className="flex justify-between text-sm text-text-secondary">
                 <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
               </div>
+              <div className="flex items-center justify-between text-sm text-text-secondary">
+                <div className="flex items-center gap-2">
+                  <span>Discount</span>
+                  <input {...register('discount')} type="number" min="0" max="100" step="0.1"
+                    className="input w-20 py-0.5 text-xs" placeholder="0" />
+                  <span>%</span>
+                </div>
+                <span className="text-red-400">-{formatCurrency(discountAmount)}</span>
+              </div>
               <div className="flex justify-between text-sm text-text-secondary">
                 <span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span>
               </div>
