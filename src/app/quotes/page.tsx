@@ -32,6 +32,7 @@ const lineItemSchema = z.object({
   unit_price: z.coerce.number().default(0),
   width: z.string().optional().default(''),
   height: z.string().optional().default(''),
+  priceType: z.enum(['psm', 'fixed', 'manual']).default('manual'),
 })
 
 const quoteSchema = z.object({
@@ -74,7 +75,7 @@ function QuotesPageInner() {
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
 
@@ -82,7 +83,14 @@ function QuotesPageInner() {
   const watchItems = watch('items')
   const watchVatRate = watch('vat_rate')
 
-  const subtotal = watchItems?.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0) || 0
+  const subtotal = watchItems?.reduce((sum, item) => {
+    const w = parseFloat(item.width || '0') / 1000
+    const h = parseFloat(item.height || '0') / 1000
+    const lineTotal = item.priceType === 'psm' && w && h
+      ? (Number(item.quantity) || 0) * w * h * (Number(item.unit_price) || 0)
+      : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
+    return sum + lineTotal
+  }, 0) || 0
   const vatAmount = subtotal * (watchVatRate / 100)
   const total = subtotal + vatAmount
 
@@ -148,7 +156,7 @@ function QuotesPageInner() {
     reset({
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '',
-      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
+      items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
     router.push('/quotes')
@@ -172,6 +180,7 @@ function QuotesPageInner() {
             unit_price: i.unit_price,
             width: i.size?.split('x')[0] || '',
             height: i.size?.split('x')[1] || '',
+            priceType: 'manual' as const,
           }))
         : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
@@ -234,7 +243,13 @@ function QuotesPageInner() {
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
-            total: item.quantity * item.unit_price,
+            total: (() => {
+              const iw = parseFloat(item.width || '0') / 1000
+              const ih = parseFloat(item.height || '0') / 1000
+              return item.priceType === 'psm' && iw && ih
+                ? item.quantity * iw * ih * item.unit_price
+                : item.quantity * item.unit_price
+            })(),
             size: item.width && item.height ? `${item.width}x${item.height}` : null,
             sort_order: idx,
           }))
@@ -455,7 +470,7 @@ function QuotesPageInner() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">Line Items</h3>
-              <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '' })}
+              <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const })}
                 className="btn-ghost btn-sm text-accent">
                 <Plus className="w-3.5 h-3.5" /> Add Item
               </button>
@@ -489,8 +504,9 @@ function QuotesPageInner() {
                           <PriceAutocomplete
                             value={descField.value}
                             onChange={descField.onChange}
-                            onSelectPrice={(selectedPrice) => {
+                            onSelectPrice={(selectedPrice, priceType) => {
                               setValue(`items.${i}.unit_price`, selectedPrice)
+                              setValue(`items.${i}.priceType`, priceType)
                             }}
                             placeholder="Description"
                             className="input"
@@ -511,7 +527,11 @@ function QuotesPageInner() {
                       <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
                     </div>
                     <div className="col-span-1 text-right text-sm font-semibold text-text-primary">
-                      {formatCurrency(qty * price)}
+                      {formatCurrency(
+                        watchItems?.[i]?.priceType === 'psm' && w && h
+                          ? qty * w * h * price
+                          : qty * price
+                      )}
                     </div>
                     <div className="col-span-1 text-xs text-text-muted text-center">
                       {sqm ? <span className="text-accent font-semibold">{sqm}</span> : '—'}

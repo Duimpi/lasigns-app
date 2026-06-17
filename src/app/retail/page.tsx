@@ -34,6 +34,7 @@ const lineItemSchema = z.object({
   unit_price: z.coerce.number().default(0),
   width: z.string().optional().default(''),
   height: z.string().optional().default(''),
+  priceType: z.enum(['psm', 'fixed', 'manual']).default('manual'),
 })
 
 const retailSchema = z.object({
@@ -118,7 +119,7 @@ function RetailPageInner() {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
+      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
 
@@ -127,7 +128,14 @@ function RetailPageInner() {
   const watchVatRate = watch('vat_rate')
   const watchStore = watch('store')
 
-  const subtotal = watchItems?.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0) || 0
+  const subtotal = watchItems?.reduce((sum, item) => {
+    const w = parseFloat(item.width || '0') / 1000
+    const h = parseFloat(item.height || '0') / 1000
+    const lineTotal = item.priceType === 'psm' && w && h
+      ? (Number(item.quantity) || 0) * w * h * (Number(item.unit_price) || 0)
+      : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
+    return sum + lineTotal
+  }, 0) || 0
   const vatAmount = subtotal * (watchVatRate / 100)
   const total = subtotal + vatAmount
 
@@ -252,7 +260,7 @@ function RetailPageInner() {
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
+      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
   }
@@ -284,7 +292,7 @@ function RetailPageInner() {
             width: i.size?.split('x')[0] || '',
             height: i.size?.split('x')[1] || '',
           }))
-        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
+        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
   }
@@ -338,7 +346,13 @@ function RetailPageInner() {
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
-            total: item.quantity * item.unit_price,
+            total: (() => {
+              const iw = parseFloat(item.width || '0') / 1000
+              const ih = parseFloat(item.height || '0') / 1000
+              return item.priceType === 'psm' && iw && ih
+                ? item.quantity * iw * ih * item.unit_price
+                : item.quantity * item.unit_price
+            })(),
             size: item.width && item.height ? `${item.width}x${item.height}` : null,
             sort_order: idx,
           }))
@@ -618,7 +632,7 @@ function RetailPageInner() {
                   <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
                     ⚠ Worker emails hide prices
                   </span>
-                  <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '' })}
+                  <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const })}
                     className="btn-ghost btn-sm text-accent">
                     <Plus className="w-3.5 h-3.5" /> Add Item
                   </button>
@@ -652,8 +666,9 @@ function RetailPageInner() {
                             <PriceAutocomplete
                               value={descField.value}
                               onChange={descField.onChange}
-                              onSelectPrice={(selectedPrice) => {
+                              onSelectPrice={(selectedPrice, priceType) => {
                                 setValue(`items.${i}.unit_price`, selectedPrice)
+                                setValue(`items.${i}.priceType`, priceType)
                               }}
                               placeholder="Description"
                               className="input"
