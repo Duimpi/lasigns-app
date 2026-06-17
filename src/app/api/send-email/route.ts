@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await resend.emails.send({
       from: 'LA Signs <onboarding@resend.dev>',
-      to: ['admin@lasigns.com.na'],
+      to: ['lasigns.d@gmail.com'],
       subject: subject,
       text: body,
       attachments: [
