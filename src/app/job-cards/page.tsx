@@ -12,12 +12,11 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate, formatCurrency, debounce, downloadBlob } from '@/lib/utils'
 import { generateJobCardPDF, generateTwoJobCardsPDF } from '@/lib/pdf/generator'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
-import { PRICE_ITEMS } from '@/data/priceData'
 import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
@@ -231,7 +230,6 @@ function JobCardsPageInner() {
       if (!editingJob) {
         const { data: numData, error: numErr } = await supabase.rpc('get_next_job_number')
         if (numErr || !numData) {
-          // Fallback: use timestamp-based number
           const year = new Date().getFullYear()
           const rand = Math.floor(Math.random() * 9000) + 1000
           jobNumber = `JC-${rand}-${year}`
@@ -280,14 +278,14 @@ function JobCardsPageInner() {
 
       const validItems = data.items.filter(item => item.description.trim())
       if (validItems.length > 0) {
-        const itemsToInsert = validItems.map((item, i) => ({
+        const itemsToInsert = validItems.map((item, idx) => ({
           job_card_id: jobId,
           description: item.description,
           quantity: Number(item.quantity) || 1,
           unit_price: Number(item.unit_price) || 0,
           total: (Number(item.quantity) || 1) * (Number(item.unit_price) || 0),
           size: item.width && item.height ? `${item.width}x${item.height}` : (item.width || item.height || null),
-          sort_order: i,
+          sort_order: idx,
         }))
         const { error: itemErr } = await supabase.from('job_card_items').insert(itemsToInsert)
         if (itemErr) throw new Error(itemErr.message)
@@ -301,7 +299,6 @@ function JobCardsPageInner() {
         performed_by: profile?.id,
       })
 
-      // Notify admins if job completed/delivered
       if (['completed', 'delivered'].includes(data.status) && profile) {
         const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
         if (admins) {
@@ -469,8 +466,7 @@ function JobCardsPageInner() {
                   const isSelected = selectedForPrint.includes(job.id)
                   return (
                     <tr key={job.id} onClick={() => printSelectMode ? togglePrintSelect(job.id) : openEdit(job)}
-                      className={isSelected ? 'bg-accent-muted border-l-2 border-accent' : ''}
-                    >
+                      className={isSelected ? 'bg-accent-muted border-l-2 border-accent' : ''}>
                       {printSelectMode && (
                         <td onClick={e => { e.stopPropagation(); togglePrintSelect(job.id) }}>
                           {isSelected ? <CheckSquare className="w-4 h-4 text-accent" /> : <Square className="w-4 h-4 text-text-muted" />}
@@ -508,7 +504,6 @@ function JobCardsPageInner() {
         </div>
       </div>
 
-      {/* Job Card Form — ALL IN ONE, NO TABS */}
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
@@ -525,8 +520,6 @@ function JobCardsPageInner() {
       >
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="space-y-6">
-
-            {/* ── SECTION 1: JOB INFO ── */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Job Details</p>
               <div className="space-y-4">
@@ -547,10 +540,10 @@ function JobCardsPageInner() {
                         {filteredClients.map(c => (
                           <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
                             onMouseDown={async () => {
-  setValue('client_id', c.id)
-  setValue('client_name', c.name)
-  setClientSearch('')
-}}>
+                              setValue('client_id', c.id)
+                              setValue('client_name', c.name)
+                              setClientSearch('')
+                            }}>
                             <p className="text-sm text-text-primary">{c.name}</p>
                             {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                           </div>
@@ -599,7 +592,6 @@ function JobCardsPageInner() {
               </div>
             </div>
 
-            {/* ── SECTION 2: LINE ITEMS ── */}
             <div className="border-t border-border pt-5">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">Line Items</p>
@@ -611,7 +603,9 @@ function JobCardsPageInner() {
 
               <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted px-1 mb-2">
                 <div className="col-span-4">Description</div>
-                <div className="col-span-3">Size (W × H)</div>
+                <div className="col-span-1">W mm</div>
+                <div className="col-span-1">H mm</div>
+                <div className="col-span-1">m²</div>
                 <div className="col-span-2">Qty</div>
                 <div className="col-span-2">Unit Price</div>
                 <div className="col-span-1"></div>
@@ -621,27 +615,36 @@ function JobCardsPageInner() {
                 {itemFields.map((field, i) => {
                   const qty = Number(watchItems?.[i]?.quantity) || 0
                   const price = Number(watchItems?.[i]?.unit_price) || 0
+                  const w = parseFloat(watchItems?.[i]?.width || '0') / 1000
+                  const h = parseFloat(watchItems?.[i]?.height || '0') / 1000
+                  const sqm = w && h ? (w * h).toFixed(4) : null
                   return (
                     <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
-                        <>
-  <input
-    {...register(`items.${i}.description`)}
-    list="price-items-list"
-    className="input"
-    placeholder="Description"
-  />
-  <datalist id="price-items-list">
-    {PRICE_ITEMS.map(item => (
-      <option key={item.id} value={item.label} />
-    ))}
-  </datalist>
-</>
+                        <Controller
+                          control={control}
+                          name={`items.${i}.description`}
+                          render={({ field: descField }) => (
+                            <PriceAutocomplete
+                              value={descField.value}
+                              onChange={descField.onChange}
+                              onSelectPrice={(selectedPrice) => {
+                                setValue(`items.${i}.unit_price`, selectedPrice)
+                              }}
+                              placeholder="Description"
+                              className="input"
+                            />
+                          )}
+                        />
                       </div>
-                      <div className="col-span-3 flex items-center gap-1">
+                      <div className="col-span-1">
                         <input {...register(`items.${i}.width`)} className="input" placeholder="W" />
-                        <span className="text-text-muted text-sm font-bold shrink-0">×</span>
+                      </div>
+                      <div className="col-span-1">
                         <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
+                      </div>
+                      <div className="col-span-1 text-xs text-center">
+                        {sqm ? <span className="text-accent font-semibold">{sqm}</span> : <span className="text-text-muted">—</span>}
                       </div>
                       <div className="col-span-2">
                         <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
@@ -668,7 +671,6 @@ function JobCardsPageInner() {
               </div>
             </div>
 
-            {/* ── SECTION 3: COMMENTS ── */}
             {editingJob && (
               <div className="border-t border-border pt-5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
@@ -700,7 +702,6 @@ function JobCardsPageInner() {
               </div>
             )}
 
-            {/* ── SAVE BUTTON ── */}
             <div className="flex gap-3 pt-2 border-t border-border">
               <button type="button" onClick={() => setIsFormOpen(false)} className="btn-secondary flex-1">Cancel</button>
               <button type="submit" disabled={isSaving} className="btn-primary flex-1">

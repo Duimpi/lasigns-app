@@ -13,12 +13,11 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate, formatCurrency, debounce } from '@/lib/utils'
 import { generateJobCardPDF } from '@/lib/pdf/generator'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
-import { PRICE_ITEMS } from '@/data/priceData'
 import {
   Plus, Download, Mail, Printer, Trash2, X, ShoppingBag
 } from 'lucide-react'
@@ -33,11 +32,11 @@ const lineItemSchema = z.object({
   description: z.string().default(''),
   quantity: z.coerce.number().default(1),
   unit_price: z.coerce.number().default(0),
-  size: z.string().optional().default(''),
+  width: z.string().optional().default(''),
+  height: z.string().optional().default(''),
 })
 
 const retailSchema = z.object({
-  // EXACT ORDER: Store → Branch → Job Card Number → Find Client → Title
   store: z.enum(['Shoprite', 'Checkers', 'Usave']),
   branch: z.string().default(''),
   job_number: z.string().optional(),
@@ -119,7 +118,7 @@ function RetailPageInner() {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     },
   })
 
@@ -132,7 +131,6 @@ function RetailPageInner() {
   const vatAmount = subtotal * (watchVatRate / 100)
   const total = subtotal + vatAmount
 
-  // Filtered branches for current store selection
   const availableBranches = branches.filter(b => b.store === watchStore)
 
   useEffect(() => { loadJobs(); loadBranches(); loadClients() }, [])
@@ -147,7 +145,6 @@ function RetailPageInner() {
     }
   }, [searchParams, jobs.length])
 
-  // Realtime - only retail jobs
   useEffect(() => {
     const channel = supabase
       .channel('retail-jobs-changes')
@@ -158,7 +155,6 @@ function RetailPageInner() {
 
   const applyFilter = useCallback(
     debounce((list: RetailJob[], q: string, store: string, status: string) => {
-      // CRITICAL: Only show retail jobs here
       let result = list.filter(j => j.is_retail === true)
       if (store !== 'all') result = result.filter(j => j.store === store)
       if (status !== 'all') result = result.filter(j => j.status === status)
@@ -172,8 +168,7 @@ function RetailPageInner() {
         )
       }
       setFiltered(result)
-    }, 120),
-    []
+    }, 120), []
   )
 
   useEffect(() => { applyFilter(jobs, search, storeFilter, statusFilter) }, [jobs, search, storeFilter, statusFilter])
@@ -181,7 +176,6 @@ function RetailPageInner() {
   async function loadJobs() {
     setIsLoading(true)
     try {
-      // CRITICAL: Always filter is_retail = true
       const { data, error } = await supabase
         .from('job_cards')
         .select(`*, items:job_card_items(*)`)
@@ -199,9 +193,7 @@ function RetailPageInner() {
     if (dbBranches.length > 0) {
       setBranches(dbBranches)
     } else {
-      // Hardcoded fallback branches
       const fallback: RetailBranch[] = [
-        // Shoprite
         ...[
           'Ausspannplatz', 'Brakwater', 'Gobabis', 'Grootfontein', 'Katutura',
           'Keetmanshoop', 'Khomasdal', 'Lüderitz', 'Mariental', 'Okahao',
@@ -210,7 +202,6 @@ function RetailPageInner() {
           'Swakopmund', 'Tsumeb', 'Walvis Bay', 'Windhoek CBD', 'Windhoek North',
           'Windhoek South', 'Witvlei', 'Nkurenkuru', 'Katima Mulilo', 'Divundu',
         ].map(name => ({ id: name, store: 'Shoprite', name, is_liquor: false })),
-        // Shoprite Liquor
         ...[
           'Ausspannplatz Liquor', 'Khomasdal Liquor', 'Ongwediva Liquor',
           'Oshakati Liquor', 'Rundu Liquor', 'Swakopmund Liquor',
@@ -219,18 +210,15 @@ function RetailPageInner() {
           'Keetmanshoop Liquor', 'Grootfontein Liquor', 'Rehoboth Liquor',
           'Mariental Liquor', 'Katima Mulilo Liquor', 'Gobabis Liquor', 'Outapi Liquor',
         ].map(name => ({ id: name, store: 'Shoprite', name, is_liquor: true })),
-        // Checkers
         ...[
           'Grove Mall', 'Maerua Mall', 'Wernhil Park', 'Kleine Kuppe',
           'Windhoek Central', 'Oshakati', 'Swakopmund', 'Walvis Bay',
         ].map(name => ({ id: 'c-'+name, store: 'Checkers', name, is_liquor: false })),
-        // Checkers Liquor
         ...[
           'Grove Mall Liquor', 'Maerua Mall Liquor', 'Wernhil Park Liquor',
           'Kleine Kuppe Liquor', 'Windhoek Central Liquor', 'Oshakati Liquor',
           'Swakopmund Liquor', 'Walvis Bay Liquor',
         ].map(name => ({ id: 'cl-'+name, store: 'Checkers', name, is_liquor: true })),
-        // Usave
         ...[
           'Babylon', 'Cimbebasia', 'Dolam', 'Freedom Square', 'Goreangab',
           'Hakahana', 'Havana', 'Katutura Central', 'Khomasdal', 'Kuisebmund',
@@ -239,10 +227,7 @@ function RetailPageInner() {
           'Windhoek North', 'Windhoek Rural', 'Otjomuise', 'Okahandja Park', 'Ongwediva',
           'Walvis Bay',
         ].map(name => ({ id: 'u-'+name, store: 'Usave', name, is_liquor: false })),
-        // Usave Liquor
-        ...[
-          'Babylon Liquor', 'Katutura Liquor',
-        ].map(name => ({ id: 'ul-'+name, store: 'Usave', name, is_liquor: true })),
+        ...['Babylon Liquor', 'Katutura Liquor'].map(name => ({ id: 'ul-'+name, store: 'Usave', name, is_liquor: true })),
       ]
       setBranches(fallback as any)
     }
@@ -262,16 +247,12 @@ function RetailPageInner() {
     setEditingJob(null)
     setActiveTab('details')
     let nextNum = `450-${new Date().getFullYear()}`
-    try {
-      nextNum = await getNextRetailNumber()
-    } catch {
-      // use fallback
-    }
+    try { nextNum = await getNextRetailNumber() } catch {}
     reset({
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
   }
@@ -300,9 +281,10 @@ function RetailPageInner() {
             description: i.description,
             quantity: i.quantity,
             unit_price: i.unit_price,
-            size: i.size || '',
+            width: i.size?.split('x')[0] || '',
+            height: i.size?.split('x')[1] || '',
           }))
-        : [{ description: '', quantity: 1, unit_price: 0, size: '' }],
+        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '' }],
     })
     setIsFormOpen(true)
   }
@@ -325,7 +307,7 @@ function RetailPageInner() {
         priority: data.priority,
         assigned_worker: data.assigned_worker || null,
         due_date: data.due_date || null,
-        is_retail: true, // ALWAYS TRUE for retail
+        is_retail: true,
         sales_rep: data.sales_rep || null,
         date_completed: data.date_completed || null,
         vat_rate: data.vat_rate,
@@ -338,34 +320,27 @@ function RetailPageInner() {
       let jobId: string
 
       if (editingJob) {
-        const { error } = await supabase.from('job_cards')
-          .update(payload)
-          .eq('id', editingJob.id)
-          .eq('is_retail', true) // Extra safety: only update retail jobs
+        const { error } = await supabase.from('job_cards').update(payload).eq('id', editingJob.id).eq('is_retail', true)
         if (error) throw error
         jobId = editingJob.id
         await supabase.from('job_card_items').delete().eq('job_card_id', jobId)
       } else {
         const jobNumber = data.job_number?.trim() || await getNextRetailNumber()
-        const { data: created, error } = await supabase
-          .from('job_cards')
-          .insert({ ...payload, job_number: jobNumber })
-          .select()
-          .single()
+        const { data: created, error } = await supabase.from('job_cards').insert({ ...payload, job_number: jobNumber }).select().single()
         if (error) throw error
         jobId = created.id
       }
 
       if (data.items.length > 0) {
         await supabase.from('job_card_items').insert(
-          data.items.map((item, i) => ({
+          data.items.map((item, idx) => ({
             job_card_id: jobId,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
             total: item.quantity * item.unit_price,
-            size: item.size || null,
-            sort_order: i,
+            size: item.width && item.height ? `${item.width}x${item.height}` : null,
+            sort_order: idx,
           }))
         )
       }
@@ -383,9 +358,7 @@ function RetailPageInner() {
       loadJobs()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to save retail job')
-    } finally {
-      setIsSaving(false)
-    }
+    } finally { setIsSaving(false) }
   }
 
   async function handleDelete() {
@@ -406,12 +379,6 @@ function RetailPageInner() {
     toast.success('Admin PDF downloaded (with prices)')
   }
 
-  function downloadWorkerPDF(job: RetailJob) {
-    const doc = generateJobCardPDF(job as any, false)
-    doc.save(`${job.job_number}-worker.pdf`)
-    toast.success('Worker PDF downloaded (no prices)')
-  }
-
   function printJob(job: RetailJob) {
     const doc = generateJobCardPDF(job as any, true)
     const blob = doc.output('blob')
@@ -421,7 +388,6 @@ function RetailPageInner() {
   }
 
   async function emailWorkerPDF(job: RetailJob) {
-    // Worker PDF has no prices
     const doc = generateJobCardPDF(job as any, false)
     doc.save(`${job.job_number}-worker.pdf`)
     toast('Worker PDF (no prices) saved — attach to email for baganiholdings@gmail.com', { icon: '📧' })
@@ -450,30 +416,22 @@ function RetailPageInner() {
       />
 
       <div className="px-6 pb-6 space-y-4">
-        {/* Store tabs */}
         <div className="flex gap-1">
           {['all', ...STORES].map(s => (
-            <button
-              key={s}
-              onClick={() => setStoreFilter(s)}
+            <button key={s} onClick={() => setStoreFilter(s)}
               className={`px-4 py-2 rounded text-sm font-semibold transition-colors ${
-                storeFilter === s
-                  ? 'bg-accent text-text-inverse'
+                storeFilter === s ? 'bg-accent text-text-inverse'
                   : `bg-bg-elevated border border-border ${s !== 'all' ? storeColors[s] : 'text-text-secondary'} hover:text-text-primary`
-              }`}
-            >
+              }`}>
               {s === 'all' ? 'All Stores' : s}
             </button>
           ))}
           <div className="ml-2 flex gap-1">
             {['all', ...STATUSES].map(s => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
+              <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent/80 text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
-                }`}
-              >
+                }`}>
                 {s === 'all' ? 'All' : s}
               </button>
             ))}
@@ -493,30 +451,18 @@ function RetailPageInner() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Job #</th>
-                  <th>Store / Branch</th>
-                  <th>Title</th>
-                  <th>Worker</th>
-                  <th>Status</th>
-                  <th>Due</th>
-                  <th>Total</th>
-                  <th className="w-32">Actions</th>
+                  <th>Job #</th><th>Store / Branch</th><th>Title</th>
+                  <th>Worker</th><th>Status</th><th>Due</th><th>Total</th><th className="w-32">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(job => (
                   <tr key={job.id} onClick={() => openEdit(job)}>
-                    <td>
-                      <span className="font-mono text-accent font-semibold text-sm">{job.job_number}</span>
-                    </td>
+                    <td><span className="font-mono text-accent font-semibold text-sm">{job.job_number}</span></td>
                     <td>
                       <div>
-                        <span className={`font-semibold text-sm ${storeColors[job.store || ''] || 'text-text-primary'}`}>
-                          {job.store}
-                        </span>
-                        {job.branch && (
-                          <p className="text-xs text-text-muted">{job.branch}</p>
-                        )}
+                        <span className={`font-semibold text-sm ${storeColors[job.store || ''] || 'text-text-primary'}`}>{job.store}</span>
+                        {job.branch && <p className="text-xs text-text-muted">{job.branch}</p>}
                       </div>
                     </td>
                     <td>
@@ -525,34 +471,15 @@ function RetailPageInner() {
                     </td>
                     <td className="text-text-secondary text-sm">{job.assigned_worker || '—'}</td>
                     <td><StatusBadge status={job.status} /></td>
-                    <td className="text-text-muted text-sm">
-                      {job.due_date ? formatDate(job.due_date) : '—'}
-                    </td>
+                    <td className="text-text-muted text-sm">{job.due_date ? formatDate(job.due_date) : '—'}</td>
                     <td className="font-semibold">{formatCurrency(job.total)}</td>
                     <td>
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => downloadAdminPDF(job)}
-                          className="btn-icon" title="Admin PDF (with prices)"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => emailWorkerPDF(job)}
-                          className="btn-icon" title="Email worker PDF (no prices)"
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => printJob(job)} className="btn-icon" title="Print">
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
+                        <button onClick={() => downloadAdminPDF(job)} className="btn-icon" title="Admin PDF"><Download className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => emailWorkerPDF(job)} className="btn-icon" title="Email worker PDF"><Mail className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
-                          <button
-                            onClick={() => setDeleteTarget(job)}
-                            className="btn-icon text-red-400/50 hover:text-red-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <button onClick={() => setDeleteTarget(job)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                         )}
                       </div>
                     </td>
@@ -564,7 +491,6 @@ function RetailPageInner() {
         </div>
       </div>
 
-      {/* Retail Job Form Modal */}
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
@@ -572,31 +498,19 @@ function RetailPageInner() {
         subtitle={editingJob ? `${editingJob.store} — ${editingJob.branch}` : undefined}
         size="xl"
         preventOutsideClose={true}
-        actions={
-          editingJob && (
-            <div className="flex gap-2">
-              <button onClick={() => downloadAdminPDF(editingJob)} className="btn-secondary btn-sm" title="With prices">
-                <Download className="w-3.5 h-3.5" /> Admin PDF
-              </button>
-              <button onClick={() => emailWorkerPDF(editingJob)} className="btn-secondary btn-sm" title="No prices">
-                <Mail className="w-3.5 h-3.5" /> Email
-              </button>
-            </div>
-          )
-        }
+        actions={editingJob && (
+          <div className="flex gap-2">
+            <button onClick={() => downloadAdminPDF(editingJob)} className="btn-secondary btn-sm" title="With prices"><Download className="w-3.5 h-3.5" /> Admin PDF</button>
+            <button onClick={() => emailWorkerPDF(editingJob)} className="btn-secondary btn-sm" title="No prices"><Mail className="w-3.5 h-3.5" /> Email</button>
+          </div>
+        )}
       >
-        {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-border -mt-2">
           {(['details', 'items'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
+            <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-4 py-2.5 text-sm font-semibold capitalize border-b-2 transition-colors ${
-                activeTab === tab
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-text-secondary hover:text-text-primary'
-              }`}
-            >
+                activeTab === tab ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'
+              }`}>
               {tab}
             </button>
           ))}
@@ -605,26 +519,19 @@ function RetailPageInner() {
         <form onSubmit={handleSubmit(onSubmit)}>
           {activeTab === 'details' && (
             <div className="space-y-5">
-              {/* EXACT ORDER: Store → Branch → Job Card Number → Find Client → Title */}
               <div>
                 <label className="label">Store *</label>
                 <div className="flex gap-2">
                   {STORES.map(s => (
-                    <button
-                      key={s}
-                      type="button"
+                    <button key={s} type="button"
                       onClick={() => { setValue('store', s); setValue('branch', '') }}
                       className={`flex-1 py-2.5 rounded border text-sm font-semibold transition-colors ${
-                        watchStore === s
-                          ? `border-current ${storeColors[s]} bg-current/10`
-                          : 'border-border text-text-secondary hover:border-border-strong'
-                      }`}
-                    >
+                        watchStore === s ? `border-current ${storeColors[s]} bg-current/10` : 'border-border text-text-secondary hover:border-border-strong'
+                      }`}>
                       {s}
                     </button>
                   ))}
                 </div>
-                {errors.store && <p className="form-error">{errors.store.message}</p>}
               </div>
 
               <div>
@@ -632,47 +539,27 @@ function RetailPageInner() {
                 <select {...register('branch')} className="input">
                   <option value="">— Select Branch —</option>
                   {availableBranches.map(b => (
-                    <option key={b.id} value={b.name}>
-                      {b.name}{b.is_liquor ? ' (Liquor)' : ''}
-                    </option>
+                    <option key={b.id} value={b.name}>{b.name}{b.is_liquor ? ' (Liquor)' : ''}</option>
                   ))}
                 </select>
-                {errors.branch && <p className="form-error">{errors.branch.message}</p>}
               </div>
 
               <div>
                 <label className="label">Job Card Number</label>
-                <input
-                  {...register('job_number')}
-                  className="input font-mono"
-                  placeholder="e.g. 0450-2026"
-                />
+                <input {...register('job_number')} className="input font-mono" placeholder="e.g. 0450-2026" />
                 <p className="text-xs text-text-muted mt-1">Auto-generated if left unchanged</p>
               </div>
 
               <div className="relative">
                 <label className="label">Find Client</label>
-                <input
-                  {...register('client_name')}
-                  className="input"
-                  placeholder="Search client name..."
-                  onChange={(e) => {
-                    register('client_name').onChange(e)
-                    setClientSearch(e.target.value)
-                  }}
+                <input {...register('client_name')} className="input" placeholder="Search client name..."
+                  onChange={(e) => { register('client_name').onChange(e); setClientSearch(e.target.value) }}
                 />
                 {clientSearch && filteredClients.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
                     {filteredClients.map(c => (
-                      <div
-                        key={c.id}
-                        className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                        onMouseDown={() => {
-                          setValue('client_id', c.id)
-                          setValue('client_name', c.name)
-                          setClientSearch('')
-                        }}
-                      >
+                      <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
+                        onMouseDown={() => { setValue('client_id', c.id); setValue('client_name', c.name); setClientSearch('') }}>
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                       </div>
@@ -710,28 +597,13 @@ function RetailPageInner() {
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="label">Due Date</label>
-                  <input {...register('due_date')} type="date" className="input" />
-                </div>
-                <div>
-                  <label className="label">Sales Rep</label>
-                  <input {...register('sales_rep')} className="input" />
-                </div>
-                <div>
-                  <label className="label">Date Completed</label>
-                  <input {...register('date_completed')} type="date" className="input" />
-                </div>
+                <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
+                <div><label className="label">Sales Rep</label><input {...register('sales_rep')} className="input" /></div>
+                <div><label className="label">Date Completed</label><input {...register('date_completed')} type="date" className="input" /></div>
               </div>
 
-              <div>
-                <label className="label">Description</label>
-                <textarea {...register('description')} className="input min-h-[80px] resize-none" />
-              </div>
-              <div>
-                <label className="label">Notes</label>
-                <textarea {...register('notes')} className="input min-h-[60px] resize-none" />
-              </div>
+              <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[80px] resize-none" /></div>
+              <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
             </div>
           )}
 
@@ -740,20 +612,14 @@ function RetailPageInner() {
               <div className="flex items-center justify-between">
                 <div className="flex gap-4 items-center">
                   <label className="label mb-0">VAT Rate (%)</label>
-                  <input
-                    {...register('vat_rate')}
-                    type="number" step="0.01" className="input w-24"
-                  />
+                  <input {...register('vat_rate')} type="number" step="0.01" className="input w-24" />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
                     ⚠ Worker emails hide prices
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, size: '' })}
-                    className="btn-ghost btn-sm text-accent"
-                  >
+                  <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '' })}
+                    className="btn-ghost btn-sm text-accent">
                     <Plus className="w-3.5 h-3.5" /> Add Item
                   </button>
                 </div>
@@ -761,10 +627,11 @@ function RetailPageInner() {
 
               <div className="grid grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted px-1">
                 <div className="col-span-4">Description</div>
-                <div className="col-span-2">Size</div>
+                <div className="col-span-1">W mm</div>
+                <div className="col-span-1">H mm</div>
+                <div className="col-span-1">m²</div>
                 <div className="col-span-2">Qty</div>
                 <div className="col-span-2">Unit Price</div>
-                <div className="col-span-1 text-right">Total</div>
                 <div className="col-span-1"></div>
               </div>
 
@@ -772,34 +639,42 @@ function RetailPageInner() {
                 {itemFields.map((field, i) => {
                   const qty = Number(watchItems?.[i]?.quantity) || 0
                   const price = Number(watchItems?.[i]?.unit_price) || 0
+                  const w = parseFloat(watchItems?.[i]?.width || '0') / 1000
+                  const h = parseFloat(watchItems?.[i]?.height || '0') / 1000
+                  const sqm = w && h ? (w * h).toFixed(4) : null
                   return (
                     <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-4">
-                        <>
-  <input
-    {...register(`items.${i}.description`)}
-    list="price-items-list"
-    className="input"
-    placeholder="Description"
-  />
-  <datalist id="price-items-list">
-    {PRICE_ITEMS.map(item => (
-      <option key={item.id} value={item.label} />
-    ))}
-  </datalist>
-</>
+                        <Controller
+                          control={control}
+                          name={`items.${i}.description`}
+                          render={({ field: descField }) => (
+                            <PriceAutocomplete
+                              value={descField.value}
+                              onChange={descField.onChange}
+                              onSelectPrice={(selectedPrice) => {
+                                setValue(`items.${i}.unit_price`, selectedPrice)
+                              }}
+                              placeholder="Description"
+                              className="input"
+                            />
+                          )}
+                        />
                       </div>
-                      <div className="col-span-2">
-                        <input {...register(`items.${i}.size`)} className="input" placeholder="Size" />
+                      <div className="col-span-1">
+                        <input {...register(`items.${i}.width`)} className="input" placeholder="W" />
+                      </div>
+                      <div className="col-span-1">
+                        <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
+                      </div>
+                      <div className="col-span-1 text-xs text-center">
+                        {sqm ? <span className="text-accent font-semibold">{sqm}</span> : <span className="text-text-muted">—</span>}
                       </div>
                       <div className="col-span-2">
                         <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
                       </div>
                       <div className="col-span-2">
                         <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
-                      </div>
-                      <div className="col-span-1 text-right text-sm font-semibold">
-                        {formatCurrency(qty * price)}
                       </div>
                       <div className="col-span-1 flex justify-end">
                         {itemFields.length > 1 && (
@@ -814,15 +689,9 @@ function RetailPageInner() {
               </div>
 
               <div className="border-t border-border pt-4 space-y-1.5">
-                <div className="flex justify-between text-sm text-text-secondary">
-                  <span>Subtotal</span><span>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-text-secondary">
-                  <span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span>
-                </div>
-                <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5">
-                  <span>TOTAL</span><span>{formatCurrency(total)}</span>
-                </div>
+                <div className="flex justify-between text-sm text-text-secondary"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                <div className="flex justify-between text-sm text-text-secondary"><span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span></div>
+                <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5"><span>TOTAL</span><span>{formatCurrency(total)}</span></div>
               </div>
             </div>
           )}
@@ -842,9 +711,7 @@ function RetailPageInner() {
         onConfirm={handleDelete}
         title="Delete Retail Job"
         message={`Delete retail job "${deleteTarget?.job_number}"? This cannot be undone.`}
-        confirmLabel="Delete"
-        danger={true}
-        isLoading={isDeleting}
+        confirmLabel="Delete" danger={true} isLoading={isDeleting}
       />
     </AppShell>
   )
