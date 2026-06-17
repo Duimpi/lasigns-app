@@ -44,6 +44,7 @@ const quoteSchema = z.object({
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
+  discount: z.coerce.number().default(0),
   items: z.array(lineItemSchema),
 })
 
@@ -74,7 +75,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '',
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -82,6 +83,7 @@ function QuotesPageInner() {
   const { fields: itemFields, append: addItem, remove: removeItem } = useFieldArray({ control, name: 'items' })
   const watchItems = watch('items')
   const watchVatRate = watch('vat_rate')
+  const watchDiscount = watch('discount')
 
   const subtotal = watchItems?.reduce((sum, item) => {
     const w = parseFloat(item.width || '0') / 1000
@@ -91,8 +93,10 @@ function QuotesPageInner() {
       : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
     return sum + lineTotal
   }, 0) || 0
-  const vatAmount = subtotal * (watchVatRate / 100)
-  const total = subtotal + vatAmount
+  const discountAmount = subtotal * ((watchDiscount || 0) / 100)
+  const discountedSubtotal = subtotal - discountAmount
+  const vatAmount = discountedSubtotal * (watchVatRate / 100)
+  const total = discountedSubtotal + vatAmount
 
   useEffect(() => { loadQuotes(); loadClients() }, [])
 
@@ -155,7 +159,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '',
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -173,6 +177,7 @@ function QuotesPageInner() {
       vat_rate: quote.vat_rate,
       notes: quote.notes || '',
       valid_until: quote.valid_until || '',
+      discount: (quote as any).discount || 0,
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
             description: i.description,
@@ -200,8 +205,14 @@ function QuotesPageInner() {
         quoteNumber = numData
       }
 
-      const sub = data.items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-      const vat = sub * (data.vat_rate / 100)
+      const sub = data.items.reduce((s, i) => {
+        const iw = parseFloat(i.width || '0') / 1000
+        const ih = parseFloat(i.height || '0') / 1000
+        return s + (i.priceType === 'psm' && iw && ih ? i.quantity * iw * ih * i.unit_price : i.quantity * i.unit_price)
+      }, 0)
+      const discAmt = sub * ((data.discount || 0) / 100)
+      const discountedSub = sub - discAmt
+      const vat = discountedSub * (data.vat_rate / 100)
 
       const quotePayload = {
         client_id: data.client_id || null,
@@ -210,9 +221,10 @@ function QuotesPageInner() {
         client_address: data.client_address || null,
         status: data.status,
         vat_rate: data.vat_rate,
-        subtotal: sub,
+        subtotal: discountedSub,
+        discount: data.discount || 0,
         vat_amount: vat,
-        total: sub + vat,
+        total: discountedSub + vat,
         notes: data.notes || null,
         valid_until: data.valid_until || null,
         is_retail: false,

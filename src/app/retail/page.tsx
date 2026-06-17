@@ -53,6 +53,7 @@ const retailSchema = z.object({
   sales_rep: z.string().optional().default(''),
   date_completed: z.string().optional().default(''),
   vat_rate: z.coerce.number().default(15),
+  discount: z.coerce.number().default(0),
   items: z.array(lineItemSchema),
 })
 
@@ -119,13 +120,14 @@ function RetailPageInner() {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
+      vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
 
   const { fields: itemFields, append: addItem, remove: removeItem } = useFieldArray({ control, name: 'items' })
   const watchItems = watch('items')
   const watchVatRate = watch('vat_rate')
+  const watchDiscount = watch('discount')
   const watchStore = watch('store')
 
   const subtotal = watchItems?.reduce((sum, item) => {
@@ -136,8 +138,10 @@ function RetailPageInner() {
       : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
     return sum + lineTotal
   }, 0) || 0
-  const vatAmount = subtotal * (watchVatRate / 100)
-  const total = subtotal + vatAmount
+  const discountAmount = subtotal * ((watchDiscount || 0) / 100)
+  const discountedSubtotal = subtotal - discountAmount
+  const vatAmount = discountedSubtotal * (watchVatRate / 100)
+  const total = discountedSubtotal + vatAmount
 
   const availableBranches = branches.filter(b => b.store === watchStore)
 
@@ -260,7 +264,7 @@ function RetailPageInner() {
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
+      vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
   }
@@ -284,6 +288,7 @@ function RetailPageInner() {
       sales_rep: job.sales_rep || '',
       date_completed: job.date_completed || '',
       vat_rate: job.vat_rate,
+      discount: (job as any).discount || 0,
       items: job.items.length > 0
         ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
             description: i.description,
@@ -300,8 +305,14 @@ function RetailPageInner() {
   async function onSubmit(data: RetailFormData) {
     setIsSaving(true)
     try {
-      const sub = data.items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-      const vat = sub * (data.vat_rate / 100)
+      const sub = data.items.reduce((s, i) => {
+        const iw = parseFloat(i.width || '0') / 1000
+        const ih = parseFloat(i.height || '0') / 1000
+        return s + (i.priceType === 'psm' && iw && ih ? i.quantity * iw * ih * i.unit_price : i.quantity * i.unit_price)
+      }, 0)
+      const discAmt = sub * ((data.discount || 0) / 100)
+      const discountedSub = sub - discAmt
+      const vat = discountedSub * (data.vat_rate / 100)
 
       const payload = {
         title: data.title,
@@ -319,9 +330,10 @@ function RetailPageInner() {
         sales_rep: data.sales_rep || null,
         date_completed: data.date_completed || null,
         vat_rate: data.vat_rate,
-        subtotal: sub,
+        subtotal: discountedSub,
+        discount: data.discount || 0,
         vat_amount: vat,
-        total: sub + vat,
+        total: discountedSub + vat,
         created_by: profile?.id || null,
       }
 
@@ -705,6 +717,15 @@ function RetailPageInner() {
 
               <div className="border-t border-border pt-4 space-y-1.5">
                 <div className="flex justify-between text-sm text-text-secondary"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                <div className="flex items-center justify-between text-sm text-text-secondary">
+                  <div className="flex items-center gap-2">
+                    <span>Discount</span>
+                    <input {...register('discount')} type="number" min="0" max="100" step="0.1"
+                      className="input w-20 py-0.5 text-xs" placeholder="0" />
+                    <span>%</span>
+                  </div>
+                  <span className="text-red-400">-{formatCurrency(discountAmount)}</span>
+                </div>
                 <div className="flex justify-between text-sm text-text-secondary"><span>VAT ({watchVatRate}%)</span><span>{formatCurrency(vatAmount)}</span></div>
                 <div className="flex justify-between text-base font-bold text-text-primary border-t border-border pt-1.5"><span>TOTAL</span><span>{formatCurrency(total)}</span></div>
               </div>
