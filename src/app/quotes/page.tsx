@@ -222,7 +222,6 @@ function QuotesPageInner() {
         status: data.status,
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
-        discount: data.discount || 0,
         vat_amount: vat,
         total: discountedSub + vat,
         notes: data.notes || null,
