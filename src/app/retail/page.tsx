@@ -375,8 +375,8 @@ function RetailPageInner() {
         entity_type: 'retail_job',
         entity_id: jobId,
         action: editingJob ? 'updated' : 'created',
-        details: { store: data.store, branch: data.branch },
-        performed_by: profile?.id,
+        metadata: { store: data.store, branch: data.branch },
+        user_id: profile?.id,
       })
 
       toast.success(editingJob ? 'Retail job updated' : 'Retail job created')

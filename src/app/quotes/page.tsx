@@ -272,8 +272,8 @@ function QuotesPageInner() {
         entity_type: 'quote',
         entity_id: quoteId,
         action: editingQuote ? 'updated' : 'created',
-        details: { quote_number: quoteNumber },
-        performed_by: profile?.id,
+        metadata: { quote_number: quoteNumber },
+        user_id: profile?.id,
       })
 
       toast.success(editingQuote ? 'Quote updated' : 'Quote created')
