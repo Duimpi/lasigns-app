@@ -249,31 +249,31 @@ function QuotesPageInner() {
       }
 
       if (data.items.length > 0) {
-        await supabase.from('quote_items').insert(
+        const { error: itemErr } = await supabase.from('quote_items').insert(
           data.items.map((item, idx) => ({
             quote_id: quoteId,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
-            total: (() => {
+            line_total: (() => {
               const iw = parseFloat(item.width || '0') / 1000
               const ih = parseFloat(item.height || '0') / 1000
               return item.priceType === 'psm' && iw && ih
                 ? item.quantity * iw * ih * item.unit_price
                 : item.quantity * item.unit_price
             })(),
-            size: item.width && item.height ? `${item.width}x${item.height}` : null,
             sort_order: idx,
           }))
         )
+        if (itemErr) throw new Error(itemErr.message)
       }
 
       await supabase.from('activity_logs').insert({
         entity_type: 'quote',
         entity_id: quoteId,
         action: editingQuote ? 'updated' : 'created',
-        metadata: { quote_number: quoteNumber },
-        user_id: profile?.id,
+        details: { quote_number: quoteNumber },
+        performed_by: profile?.id,
       })
 
       toast.success(editingQuote ? 'Quote updated' : 'Quote created')
