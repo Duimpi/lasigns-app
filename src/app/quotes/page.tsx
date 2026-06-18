@@ -214,15 +214,20 @@ function QuotesPageInner() {
       const discountedSub = sub - discAmt
       const vat = discountedSub * (data.vat_rate / 100)
 
+      const statusMap: Record<string, string> = {
+        'draft': 'Draft', 'sent': 'Sent', 'approved': 'Approved',
+        'in_production': 'In Production', 'completed': 'Completed', 'cancelled': 'Cancelled',
+        'Draft': 'Draft', 'Sent': 'Sent', 'Approved': 'Approved',
+        'In Production': 'In Production', 'Completed': 'Completed', 'Cancelled': 'Cancelled',
+      }
       const quotePayload = {
         client_id: data.client_id || null,
         client_name: data.client_name,
         client_email: data.client_email || null,
         client_address: data.client_address || null,
-        status: data.status,
+        status: statusMap[data.status] || 'Draft',
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
-        discount: data.discount || 0,
         vat_amount: vat,
         total: discountedSub + vat,
         notes: data.notes || null,
