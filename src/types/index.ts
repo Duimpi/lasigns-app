@@ -49,7 +49,7 @@ export interface ClientEmail {
 
 // ─── QUOTES ─────────────────────────────────────────────────
 
-export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'in_production' | 'completed' | 'cancelled'
+export type QuoteStatus = 'Draft' | 'Sent' | 'Approved' | 'In Production' | 'Completed' | 'Cancelled'
 
 export interface Quote {
   id: string
@@ -82,15 +82,15 @@ export interface QuoteItem {
   description: string
   quantity: number
   unit_price: number
-  total: number
+  line_total: number
   size?: string
   sort_order: number
 }
 
 // ─── JOB CARDS ──────────────────────────────────────────────
 
-export type JobCardStatus = 'pending' | 'designing' | 'printing' | 'installation' | 'completed' | 'delivered'
-export type Priority = 'low' | 'normal' | 'high' | 'urgent'
+export type JobCardStatus = 'Pending' | 'Designing' | 'Printing' | 'Installation' | 'Completed' | 'Delivered'
+export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent'
 export type Worker = 'Nicole' | 'Geraldo' | 'Bets-Mari'
 
 export interface JobCard {
@@ -130,7 +130,7 @@ export interface JobCardItem {
   description: string
   quantity: number
   unit_price: number
-  total: number
+  line_total: number
   size?: string
   sort_order: number
 }
