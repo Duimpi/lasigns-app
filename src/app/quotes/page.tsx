@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { Quote, QuoteStatus, Client } from '@/types'
 
-const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
+const STATUSES: QuoteStatus[] = ['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled']
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -40,7 +40,7 @@ const quoteSchema = z.object({
   client_name: z.string().min(1, 'Client name is required'),
   client_email: z.string().email().or(z.literal('').optional()),
   client_address: z.string().optional(),
-  status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
+  status: z.enum(['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled']),
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
@@ -75,7 +75,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -159,7 +159,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -249,23 +249,23 @@ function QuotesPageInner() {
       }
 
       if (data.items.length > 0) {
-        const { error: itemErr } = await supabase.from('quote_items').insert(
+        await supabase.from('quote_items').insert(
           data.items.map((item, idx) => ({
             quote_id: quoteId,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
-            line_total: (() => {
+            total: (() => {
               const iw = parseFloat(item.width || '0') / 1000
               const ih = parseFloat(item.height || '0') / 1000
               return item.priceType === 'psm' && iw && ih
                 ? item.quantity * iw * ih * item.unit_price
                 : item.quantity * item.unit_price
             })(),
+            size: item.width && item.height ? `${item.width}x${item.height}` : null,
             sort_order: idx,
           }))
         )
-        if (itemErr) throw new Error(itemErr.message)
       }
 
       await supabase.from('activity_logs').insert({
@@ -363,7 +363,7 @@ function QuotesPageInner() {
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
                 }`}>
-                {s === 'all' ? 'All' : s.replace('_', ' ')}
+                {s === 'all' ? 'All' : s}
               </button>
             ))}
           </div>
@@ -485,7 +485,7 @@ function QuotesPageInner() {
             <div>
               <label className="label">Status</label>
               <select {...register('status')} className="input">
-                {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>)}
+                {STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
               </select>
             </div>
             <div>

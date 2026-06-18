@@ -23,8 +23,8 @@ import {
 } from 'lucide-react'
 import type { JobCardStatus, Priority, Worker, Client, RetailBranch, RetailStore } from '@/types'
 
-const STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']
-const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
+const STATUSES: JobCardStatus[] = ['Pending', 'Designing', 'Printing', 'Installation', 'Completed', 'Delivered']
+const PRIORITIES: Priority[] = ['Low', 'Medium', 'High', 'Urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
 
@@ -46,8 +46,8 @@ const retailSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional().default(''),
   notes: z.string().optional().default(''),
-  status: z.enum(['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']),
-  priority: z.enum(['low', 'normal', 'high', 'urgent']),
+  status: z.enum(['Pending', 'Designing', 'Printing', 'Installation', 'Completed', 'Delivered']),
+  priority: z.enum(['Low', 'Medium', 'High', 'Urgent']),
   assigned_worker: z.string().optional().default(''),
   due_date: z.string().optional().default(''),
   sales_rep: z.string().optional().default(''),
@@ -118,7 +118,7 @@ function RetailPageInner() {
     resolver: zodResolver(retailSchema),
     defaultValues: {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
-      title: '', description: '', notes: '', status: 'pending', priority: 'normal',
+      title: '', description: '', notes: '', status: 'Pending', priority: 'Medium',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
       vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
@@ -262,7 +262,7 @@ function RetailPageInner() {
     try { nextNum = await getNextRetailNumber() } catch {}
     reset({
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
-      title: '', description: '', notes: '', status: 'pending', priority: 'normal',
+      title: '', description: '', notes: '', status: 'Pending', priority: 'Medium',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
       vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
