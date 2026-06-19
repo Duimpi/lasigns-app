@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { Quote, QuoteStatus, Client } from '@/types'
 
-const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
+const STATUSES = ['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled'] as const
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -40,7 +40,7 @@ const quoteSchema = z.object({
   client_name: z.string().min(1, 'Client name is required'),
   client_email: z.string().email().or(z.literal('').optional()),
   client_address: z.string().optional(),
-  status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
+  status: z.enum(['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled']),
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
@@ -75,7 +75,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -159,7 +159,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -214,15 +214,25 @@ function QuotesPageInner() {
       const discountedSub = sub - discAmt
       const vat = discountedSub * (data.vat_rate / 100)
 
+      // Verify client_id exists before using it
+      let validClientId: string | null = null
+      if (data.client_id) {
+        const { data: clientCheck } = await supabase.from('clients').select('id').eq('id', data.client_id).single()
+        if (clientCheck) validClientId = data.client_id
+      }
+
       const statusMap: Record<string, string> = {
         'draft': 'Draft', 'sent': 'Sent', 'approved': 'Approved',
         'in_production': 'In Production', 'completed': 'Completed', 'cancelled': 'Cancelled',
         'Draft': 'Draft', 'Sent': 'Sent', 'Approved': 'Approved',
         'In Production': 'In Production', 'Completed': 'Completed', 'Cancelled': 'Cancelled',
       }
+
       const quotePayload: any = {
-        client_id: data.client_id || null,
+        client_id: validClientId,
         client_name: data.client_name,
+        client_email: data.client_email || null,
+        client_address: data.client_address || null,
         status: statusMap[data.status] || 'Draft',
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
@@ -230,12 +240,9 @@ function QuotesPageInner() {
         total: discountedSub + vat,
         notes: data.notes || null,
         valid_until: data.valid_until || null,
+        is_retail: false,
         created_by: null,
       }
-      // Add new columns only if they exist in schema cache
-      try { quotePayload.client_email = data.client_email || null } catch {}
-      try { quotePayload.client_address = data.client_address || null } catch {}
-      try { quotePayload.is_retail = false } catch {}
 
       let quoteId: string
 
