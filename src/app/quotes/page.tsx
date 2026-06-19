@@ -220,11 +220,9 @@ function QuotesPageInner() {
         'Draft': 'Draft', 'Sent': 'Sent', 'Approved': 'Approved',
         'In Production': 'In Production', 'Completed': 'Completed', 'Cancelled': 'Cancelled',
       }
-      const quotePayload = {
+      const quotePayload: any = {
         client_id: data.client_id || null,
         client_name: data.client_name,
-        client_email: data.client_email || null,
-        client_address: data.client_address || null,
         status: statusMap[data.status] || 'Draft',
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
@@ -232,9 +230,12 @@ function QuotesPageInner() {
         total: discountedSub + vat,
         notes: data.notes || null,
         valid_until: data.valid_until || null,
-        is_retail: false,
         created_by: null,
       }
+      // Add new columns only if they exist in schema cache
+      try { quotePayload.client_email = data.client_email || null } catch {}
+      try { quotePayload.client_address = data.client_address || null } catch {}
+      try { quotePayload.is_retail = false } catch {}
 
       let quoteId: string
 
