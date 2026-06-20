@@ -215,8 +215,6 @@ function QuotesPageInner() {
       const vat = discountedSub * (data.vat_rate / 100)
 
       const quotePayload = {
-		  console.log("QUOTE PAYLOAD")
-console.log(JSON.stringify(quotePayload, null, 2))
         client_id: null, // Disabled - client_id from dropdown not in DB
         client_name: data.client_name,
         client_email: data.client_email || null,
@@ -639,3 +637,4 @@ export default function QuotesPage() {
     </Suspense>
   )
 }
+
