@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { Quote, QuoteStatus, Client } from '@/types'
 
-const STATUSES = ['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled'] as const
+const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -40,7 +40,7 @@ const quoteSchema = z.object({
   client_name: z.string().min(1, 'Client name is required'),
   client_email: z.string().email().or(z.literal('').optional()),
   client_address: z.string().optional(),
-  status: z.enum(['Draft', 'Sent', 'Approved', 'In Production', 'Completed', 'Cancelled']),
+  status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
@@ -75,7 +75,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -159,7 +159,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'Draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -214,40 +214,25 @@ function QuotesPageInner() {
       const discountedSub = sub - discAmt
       const vat = discountedSub * (data.vat_rate / 100)
 
-      // Verify client_id exists before using it
-      let validClientId: string | null = null
-      if (data.client_id) {
-        const { data: clientCheck } = await supabase.from('clients').select('id').eq('id', data.client_id).single()
-        if (clientCheck) validClientId = data.client_id
+      const quotePayload = {
+        client_id: null, // Disabled - client_id from dropdown not in DB
+        client_name: data.client_name,
+        client_email: data.client_email || null,
+        client_address: data.client_address || null,
+        status: (function(s){
+        var m={'draft':'Draft','sent':'Sent','approved':'Approved','in_production':'In Production','completed':'Completed','cancelled':'Cancelled','Draft':'Draft','Sent':'Sent','Approved':'Approved','In Production':'In Production','Completed':'Completed','Cancelled':'Cancelled'};
+        return m[s]||'Draft';
+      })(data.status),
+        vat_rate: data.vat_rate,
+        subtotal: discountedSub,
+        discount: data.discount || 0,
+        vat_amount: vat,
+        total: discountedSub + vat,
+        notes: data.notes || null,
+        valid_until: data.valid_until || null,
+        is_retail: false,
+        created_by: profile?.id || null,
       }
-
-      const statusMap: Record<string, string> = {
-        'draft': 'Draft', 'sent': 'Sent', 'approved': 'Approved',
-        'in_production': 'In Production', 'completed': 'Completed', 'cancelled': 'Cancelled',
-        'Draft': 'Draft', 'Sent': 'Sent', 'Approved': 'Approved',
-        'In Production': 'In Production', 'Completed': 'Completed', 'Cancelled': 'Cancelled',
-      }
-
-      const quotePayload: any = {
-  client_id: validClientId,
-  client_name: data.client_name,
-  client_email: data.client_email || null,
-  client_address: data.client_address || null,
-  status: statusMap[data.status] || 'Draft',
-  vat_rate: data.vat_rate,
-  subtotal: discountedSub,
-  vat_amount: vat,
-  total: discountedSub + vat,
-  notes: data.notes || null,
-  valid_until: data.valid_until || null,
-  is_retail: false,
-  created_by: null,
-}
-
-console.log("========== QUOTE PAYLOAD ==========")
-console.log(JSON.stringify(quotePayload, null, 2))
-console.log("QUOTE NUMBER:", quoteNumber)
-console.log("==================================")
 
       let quoteId: string
 
@@ -257,33 +242,17 @@ console.log("==================================")
         quoteId = editingQuote.id
         await supabase.from('quote_items').delete().eq('quote_id', quoteId)
       } else {
-
-  console.log("INSERTING:")
-  console.log(JSON.stringify({
-    ...quotePayload,
-    quote_number: quoteNumber
-  }, null, 2))
-
-  const { data: created, error } = await supabase
-    .from('quotes')
-    .insert({ ...quotePayload, quote_number: quoteNumber })
-    .select()
-    .single()
-
-  if (error) {
-    console.error("SUPABASE ERROR:")
-    console.error(error)
-    throw error
-  }
-
-  console.log("QUOTE CREATED:")
-  console.log(created)
-
-  quoteId = created.id
-}
+        const { data: created, error } = await supabase
+          .from('quotes')
+          .insert({ ...quotePayload, quote_number: quoteNumber })
+          .select()
+          .single()
+        if (error) throw error
+        quoteId = created.id
+      }
 
       if (data.items.length > 0) {
-        const { error: itemErr } = await supabase.from('quote_items').insert(
+        await supabase.from('quote_items').insert(
           data.items.map((item, idx) => ({
             quote_id: quoteId,
             description: item.description,
@@ -299,15 +268,14 @@ console.log("==================================")
             sort_order: idx,
           }))
         )
-        if (itemErr) throw new Error(itemErr.message)
       }
 
       await supabase.from('activity_logs').insert({
         entity_type: 'quote',
         entity_id: quoteId,
         action: editingQuote ? 'updated' : 'created',
-        metadata: { quote_number: quoteNumber },
-        user_id: profile?.id,
+        details: { quote_number: quoteNumber },
+        performed_by: profile?.id,
       })
 
       toast.success(editingQuote ? 'Quote updated' : 'Quote created')
@@ -357,7 +325,7 @@ console.log("==================================")
         body: JSON.stringify({
           pdfBase64,
           fileName: `${quote.quote_number}.pdf`,
-          subject: `Quote ${quote.quote_number} â€” ${quote.client_name || 'Client'}`,
+          subject: `Quote ${quote.quote_number} — ${quote.client_name || 'Client'}`,
           clientName: quote.client_name || 'Client',
           type: 'quote',
         }),
@@ -365,7 +333,7 @@ console.log("==================================")
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
-      toast.success('Email sent to admin@lasigns.com.na âœ…')
+      toast.success('Email sent to admin@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
       toast.error(`Email failed: ${err.message}`)
@@ -428,7 +396,7 @@ console.log("==================================")
                         {quote.is_locked && <Lock className="w-3 h-3 text-text-muted" />}
                       </div>
                     </td>
-                    <td className="font-medium">{quote.client_name || 'â€”'}</td>
+                    <td className="font-medium">{quote.client_name || '—'}</td>
                     <td><StatusBadge status={quote.status} /></td>
                     <td className="text-text-secondary">{formatCurrency(quote.subtotal)}</td>
                     <td className="text-text-secondary">{formatCurrency(quote.vat_amount)}</td>
@@ -459,7 +427,7 @@ console.log("==================================")
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editingQuote ? `Edit â€” ${editingQuote.quote_number}` : 'New Quotation'}
+        title={editingQuote ? `Edit — ${editingQuote.quote_number}` : 'New Quotation'}
         size="xl"
         preventOutsideClose={true}
         actions={editingQuote && (
@@ -549,7 +517,7 @@ console.log("==================================")
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit Price</div>
               <div className="col-span-1 text-right">Total</div>
-              <div className="col-span-1">mÂ²</div>
+              <div className="col-span-1">m²</div>
               <div className="col-span-1"></div>
             </div>
 
@@ -600,7 +568,7 @@ console.log("==================================")
                       )}
                     </div>
                     <div className="col-span-1 text-xs text-text-muted text-center">
-                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : 'â€”'}
+                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : '—'}
                     </div>
                     <div className="col-span-1 flex justify-end">
                       {itemFields.length > 1 && (
