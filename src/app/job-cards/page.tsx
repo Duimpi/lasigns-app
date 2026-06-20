@@ -305,13 +305,14 @@ function JobCardsPageInner() {
         if (itemErr) throw new Error(itemErr.message)
       }
 
-      await supabase.from('activity_logs').insert({
+      const { error: activityError } = await supabase.from('activity_logs').insert({
         entity_type: 'job_card',
         entity_id: jobId,
         action: editingJob ? 'updated' : 'created',
-        details: { title: data.title, job_number: jobNumber },
-        performed_by: profile?.id,
+        metadata: { title: data.title, job_number: jobNumber },
+        user_id: profile?.id,
       })
+      if (activityError) console.warn('Activity log failed:', activityError)
 
       if (['completed', 'delivered'].includes(data.status) && profile) {
         const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')

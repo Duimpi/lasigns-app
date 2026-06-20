@@ -219,10 +219,7 @@ function QuotesPageInner() {
         client_name: data.client_name,
         client_email: data.client_email || null,
         client_address: data.client_address || null,
-        status: (function(s){
-        var m={'draft':'Draft','sent':'Sent','approved':'Approved','in_production':'In Production','completed':'Completed','cancelled':'Cancelled','Draft':'Draft','Sent':'Sent','Approved':'Approved','In Production':'In Production','Completed':'Completed','Cancelled':'Cancelled'};
-        return m[s]||'Draft';
-      })(data.status),
+        status: data.status,
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
         
@@ -240,7 +237,8 @@ function QuotesPageInner() {
         const { error } = await supabase.from('quotes').update(quotePayload).eq('id', editingQuote.id)
         if (error) throw error
         quoteId = editingQuote.id
-        await supabase.from('quote_items').delete().eq('quote_id', quoteId)
+        const { error: deleteItemsError } = await supabase.from('quote_items').delete().eq('quote_id', quoteId)
+        if (deleteItemsError) throw deleteItemsError
       } else {
         const { data: created, error } = await supabase
           .from('quotes')
@@ -252,37 +250,47 @@ function QuotesPageInner() {
       }
 
       if (data.items.length > 0) {
-        await supabase.from('quote_items').insert(
+        const { error: itemError } = await supabase.from('quote_items').insert(
           data.items.map((item, idx) => ({
             quote_id: quoteId,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
-            line_total: (() => {
+            total: (() => {
               const iw = parseFloat(item.width || '0') / 1000
               const ih = parseFloat(item.height || '0') / 1000
               return item.priceType === 'psm' && iw && ih
                 ? item.quantity * iw * ih * item.unit_price
                 : item.quantity * item.unit_price
             })(),
+            size: item.width && item.height ? `${item.width}x${item.height}` : null,
             sort_order: idx,
           }))
         )
+        if (itemError) throw itemError
       }
 
-      await supabase.from('activity_logs').insert({
+      const { error: activityError } = await supabase.from('activity_logs').insert({
         entity_type: 'quote',
         entity_id: quoteId,
         action: editingQuote ? 'updated' : 'created',
-        details: { quote_number: quoteNumber },
-        performed_by: profile?.id,
+        metadata: { quote_number: quoteNumber },
+        user_id: profile?.id,
       })
+      if (activityError) console.warn('Activity log failed:', activityError)
 
       toast.success(editingQuote ? 'Quote updated' : 'Quote created')
       setIsFormOpen(false)
       loadQuotes()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save quote')
+      console.error('Quote save failed:', err)
+      const message = err && typeof err === 'object' && 'message' in err
+        ? String((err as { message?: unknown }).message)
+        : 'Failed to save quote'
+      const code = err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : ''
+      toast.error(code ? `${message} (${code})` : message)
     } finally {
       setIsSaving(false)
     }

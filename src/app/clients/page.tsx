@@ -217,13 +217,14 @@ export default function ClientsPage() {
       }
 
       // Activity log
-      await supabase.from('activity_logs').insert({
+      const { error: activityError } = await supabase.from('activity_logs').insert({
         entity_type: 'client',
         entity_id: clientId,
         action: editingClient ? 'updated' : 'created',
-        details: { name: data.name },
-        performed_by: profile?.id,
+        metadata: { name: data.name },
+        user_id: profile?.id,
       })
+      if (activityError) console.warn('Activity log failed:', activityError)
 
       toast.success(editingClient ? 'Client updated' : 'Client created')
       setIsFormOpen(false)

@@ -209,8 +209,8 @@ export interface ActivityLog {
   entity_type: 'client' | 'quote' | 'job_card' | 'retail_job' | 'chat'
   entity_id: string
   action: string
-  details?: Record<string, unknown>
-  performed_by?: string
+  metadata?: Record<string, unknown>
+  user_id?: string
   created_at: string
   profile?: Profile
 }
