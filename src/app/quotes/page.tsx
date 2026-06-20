@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -285,8 +285,8 @@ function QuotesPageInner() {
         entity_type: 'quote',
         entity_id: quoteId,
         action: editingQuote ? 'updated' : 'created',
-        details: { quote_number: quoteNumber },
-        performed_by: profile?.id,
+        metadata: { quote_number: quoteNumber },
+        user_id: profile?.id,
       })
 
       toast.success(editingQuote ? 'Quote updated' : 'Quote created')
@@ -336,7 +336,7 @@ function QuotesPageInner() {
         body: JSON.stringify({
           pdfBase64,
           fileName: `${quote.quote_number}.pdf`,
-          subject: `Quote ${quote.quote_number} — ${quote.client_name || 'Client'}`,
+          subject: `Quote ${quote.quote_number} â€” ${quote.client_name || 'Client'}`,
           clientName: quote.client_name || 'Client',
           type: 'quote',
         }),
@@ -344,7 +344,7 @@ function QuotesPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
-      toast.success('Email sent to admin@lasigns.com.na ✅')
+      toast.success('Email sent to admin@lasigns.com.na âœ…')
     } catch (err: any) {
       toast.dismiss(toastId)
       toast.error(`Email failed: ${err.message}`)
@@ -407,7 +407,7 @@ function QuotesPageInner() {
                         {quote.is_locked && <Lock className="w-3 h-3 text-text-muted" />}
                       </div>
                     </td>
-                    <td className="font-medium">{quote.client_name || '—'}</td>
+                    <td className="font-medium">{quote.client_name || 'â€”'}</td>
                     <td><StatusBadge status={quote.status} /></td>
                     <td className="text-text-secondary">{formatCurrency(quote.subtotal)}</td>
                     <td className="text-text-secondary">{formatCurrency(quote.vat_amount)}</td>
@@ -438,7 +438,7 @@ function QuotesPageInner() {
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editingQuote ? `Edit — ${editingQuote.quote_number}` : 'New Quotation'}
+        title={editingQuote ? `Edit â€” ${editingQuote.quote_number}` : 'New Quotation'}
         size="xl"
         preventOutsideClose={true}
         actions={editingQuote && (
@@ -528,7 +528,7 @@ function QuotesPageInner() {
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit Price</div>
               <div className="col-span-1 text-right">Total</div>
-              <div className="col-span-1">m²</div>
+              <div className="col-span-1">mÂ²</div>
               <div className="col-span-1"></div>
             </div>
 
@@ -579,7 +579,7 @@ function QuotesPageInner() {
                       )}
                     </div>
                     <div className="col-span-1 text-xs text-text-muted text-center">
-                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : '—'}
+                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : 'â€”'}
                     </div>
                     <div className="col-span-1 flex justify-end">
                       {itemFields.length > 1 && (
