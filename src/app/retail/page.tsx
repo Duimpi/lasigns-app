@@ -23,8 +23,8 @@ import {
 } from 'lucide-react'
 import type { JobCardStatus, Priority, Worker, Client, RetailBranch, RetailStore } from '@/types'
 
-const STATUSES: JobCardStatus[] = ['Pending', 'Designing', 'Printing', 'Installation', 'Completed', 'Delivered']
-const PRIORITIES: Priority[] = ['Low', 'Medium', 'High', 'Urgent']
+const STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']
+const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
 
@@ -46,8 +46,8 @@ const retailSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional().default(''),
   notes: z.string().optional().default(''),
-  status: z.enum(['Pending', 'Designing', 'Printing', 'Installation', 'Completed', 'Delivered']),
-  priority: z.enum(['Low', 'Medium', 'High', 'Urgent']),
+  status: z.enum(['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']),
+  priority: z.enum(['low', 'normal', 'high', 'urgent']),
   assigned_worker: z.string().optional().default(''),
   due_date: z.string().optional().default(''),
   sales_rep: z.string().optional().default(''),
@@ -93,6 +93,40 @@ interface RetailJob {
   }[]
 }
 
+function normalizeJobStatus(status: string): JobCardStatus {
+  const map: Record<string, JobCardStatus> = {
+    Pending: 'pending',
+    Designing: 'designing',
+    Printing: 'printing',
+    Installation: 'installation',
+    Completed: 'completed',
+    Delivered: 'delivered',
+    pending: 'pending',
+    designing: 'designing',
+    printing: 'printing',
+    installation: 'installation',
+    completed: 'completed',
+    delivered: 'delivered',
+  }
+  return map[status] || 'pending'
+}
+
+function normalizePriority(priority: string): Priority {
+  const map: Record<string, Priority> = {
+    Low: 'low',
+    Medium: 'normal',
+    Normal: 'normal',
+    High: 'high',
+    Urgent: 'urgent',
+    low: 'low',
+    medium: 'normal',
+    normal: 'normal',
+    high: 'high',
+    urgent: 'urgent',
+  }
+  return map[priority] || 'normal'
+}
+
 function RetailPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
@@ -118,7 +152,7 @@ function RetailPageInner() {
     resolver: zodResolver(retailSchema),
     defaultValues: {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
-      title: '', description: '', notes: '', status: 'Pending', priority: 'Medium',
+      title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
       vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
@@ -281,8 +315,8 @@ function RetailPageInner() {
       title: job.title,
       description: job.description || '',
       notes: job.notes || '',
-      status: job.status,
-      priority: job.priority,
+      status: normalizeJobStatus(job.status),
+      priority: normalizePriority(job.priority),
       assigned_worker: job.assigned_worker || '',
       due_date: job.due_date || '',
       sales_rep: job.sales_rep || '',
@@ -322,15 +356,14 @@ function RetailPageInner() {
         client_name: data.client_name || null,
         store: data.store,
         branch: data.branch,
-        status: data.status,
-        priority: data.priority,
+        status: normalizeJobStatus(data.status),
+        priority: normalizePriority(data.priority),
         assigned_worker: data.assigned_worker || null,
         due_date: data.due_date || null,
         is_retail: true,
         sales_rep: data.sales_rep || null,
         date_completed: data.date_completed || null,
         vat_rate: data.vat_rate,
-        discount: data.discount || 0,
         subtotal: discountedSub,
         vat_amount: vat,
         total: discountedSub + vat,
@@ -625,7 +658,7 @@ function RetailPageInner() {
                 <div>
                   <label className="label">Status</label>
                   <select {...register('status')} className="input">
-                    {STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                    {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ').toUpperCase()}</option>)}
                   </select>
                 </div>
                 <div>

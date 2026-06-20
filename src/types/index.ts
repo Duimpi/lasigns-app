@@ -89,8 +89,8 @@ export interface QuoteItem {
 
 // ─── JOB CARDS ──────────────────────────────────────────────
 
-export type JobCardStatus = 'Pending' | 'Designing' | 'Printing' | 'Installation' | 'Completed' | 'Delivered'
-export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent'
+export type JobCardStatus = 'pending' | 'designing' | 'printing' | 'installation' | 'completed' | 'delivered'
+export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 export type Worker = 'Nicole' | 'Geraldo' | 'Bets-Mari'
 
 export interface JobCard {
