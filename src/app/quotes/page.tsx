@@ -229,20 +229,25 @@ function QuotesPageInner() {
       }
 
       const quotePayload: any = {
-        client_id: validClientId,
-        client_name: data.client_name,
-        client_email: data.client_email || null,
-        client_address: data.client_address || null,
-        status: statusMap[data.status] || 'Draft',
-        vat_rate: data.vat_rate,
-        subtotal: discountedSub,
-        vat_amount: vat,
-        total: discountedSub + vat,
-        notes: data.notes || null,
-        valid_until: data.valid_until || null,
-        is_retail: false,
-        created_by: null,
-      }
+  client_id: validClientId,
+  client_name: data.client_name,
+  client_email: data.client_email || null,
+  client_address: data.client_address || null,
+  status: statusMap[data.status] || 'Draft',
+  vat_rate: data.vat_rate,
+  subtotal: discountedSub,
+  vat_amount: vat,
+  total: discountedSub + vat,
+  notes: data.notes || null,
+  valid_until: data.valid_until || null,
+  is_retail: false,
+  created_by: null,
+}
+
+console.log("========== QUOTE PAYLOAD ==========")
+console.log(JSON.stringify(quotePayload, null, 2))
+console.log("QUOTE NUMBER:", quoteNumber)
+console.log("==================================")
 
       let quoteId: string
 
@@ -252,14 +257,30 @@ function QuotesPageInner() {
         quoteId = editingQuote.id
         await supabase.from('quote_items').delete().eq('quote_id', quoteId)
       } else {
-        const { data: created, error } = await supabase
-          .from('quotes')
-          .insert({ ...quotePayload, quote_number: quoteNumber })
-          .select()
-          .single()
-        if (error) throw error
-        quoteId = created.id
-      }
+
+  console.log("INSERTING:")
+  console.log(JSON.stringify({
+    ...quotePayload,
+    quote_number: quoteNumber
+  }, null, 2))
+
+  const { data: created, error } = await supabase
+    .from('quotes')
+    .insert({ ...quotePayload, quote_number: quoteNumber })
+    .select()
+    .single()
+
+  if (error) {
+    console.error("SUPABASE ERROR:")
+    console.error(error)
+    throw error
+  }
+
+  console.log("QUOTE CREATED:")
+  console.log(created)
+
+  quoteId = created.id
+}
 
       if (data.items.length > 0) {
         const { error: itemErr } = await supabase.from('quote_items').insert(
