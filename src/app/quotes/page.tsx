@@ -231,7 +231,7 @@ function QuotesPageInner() {
         notes: data.notes || null,
         valid_until: data.valid_until || null,
         is_retail: false,
-        created_by: profile?.id || null,
+        created_by: null,
       }
 
       let quoteId: string
@@ -637,4 +637,5 @@ export default function QuotesPage() {
     </Suspense>
   )
 }
+
 
