@@ -9,7 +9,7 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   CreditCard, Banknote, Building2, CheckCircle2,
-  AlertCircle, Search, Plus, X, Package, PackageCheck, CheckCheck
+  AlertCircle, Search, Plus, X, Package, PackageCheck, CheckCheck, Trash2
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
@@ -113,7 +113,7 @@ function ReceptionPageInner() {
       // Payment history - job cards and quotes with PAID notes
       const { data: histData } = await supabase
         .from('job_cards')
-        .select('id, job_number, title, client_name, total, notes, updated_at')
+        .select('id, job_number, title, client_name, total, notes, status, updated_at')
         .like('notes', 'PAID:%')
         .not('job_number', 'like', 'WI-%')
         .order('updated_at', { ascending: false })
@@ -179,6 +179,16 @@ function ReceptionPageInner() {
       loadData()
     } catch (err: any) { toast.error(`Failed: ${err.message}`) }
     finally { setIsSaving(false) }
+  }
+
+  async function deletePaymentHistory(item: any) {
+    if (!confirm(`Remove payment history for ${item.client_name || 'this client'}?`)) return
+    const updatePayload: any = { notes: null }
+    if (item.status === 'delivered') updatePayload.status = 'completed'
+    const { error } = await supabase.from('job_cards').update(updatePayload).eq('id', item.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success('Payment history removed')
+    loadData()
   }
 
   async function deleteWalkin(id: string) {
@@ -483,10 +493,17 @@ function ReceptionPageInner() {
                       {noteMatch && <p className="text-xs text-text-muted mt-0.5">Note: {noteMatch[1]}</p>}
                       {dateMatch && <p className="text-[11px] text-text-muted mt-1">{dateMatch[1]}</p>}
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 flex flex-col items-end gap-2">
                       <p className="text-lg font-bold text-emerald-400">
                         N${amountMatch ? amountMatch[1] : item.total}
                       </p>
+                      <button
+                        onClick={() => deletePaymentHistory(item)}
+                        className="btn-sm px-2 py-1 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg border border-red-500/30 flex items-center gap-1"
+                        title="Remove payment history"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
                     </div>
                   </div>
                 </div>

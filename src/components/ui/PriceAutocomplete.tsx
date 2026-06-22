@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { PRICE_ITEMS } from '@/data/priceData';
+
+const STORAGE_KEY = 'la-signs-price-overrides';
+const CUSTOM_KEY = 'la-signs-custom-prices';
 
 interface Props {
   value: string;
@@ -11,20 +14,77 @@ interface Props {
   className?: string;
 }
 
+interface SearchPriceItem {
+  id: string | number;
+  category: string;
+  description: string;
+  size?: string | null;
+  price: number;
+  priceType: 'psm' | 'fixed';
+  label: string;
+}
+
+function makeLabel(item: { category?: string; description?: string; size?: string | null }) {
+  const category = item.category || 'Custom';
+  const description = item.description || '';
+  return item.size ? category + ' - ' + description + ' (' + item.size + ')' : category + ' - ' + description;
+}
+
+function loadPriceItems(): SearchPriceItem[] {
+  if (typeof window === 'undefined') return PRICE_ITEMS;
+  let overrides: Record<string, Partial<SearchPriceItem>> = {};
+  let custom: Partial<SearchPriceItem>[] = [];
+  try { overrides = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
+  try { custom = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]'); } catch {}
+
+  const base = PRICE_ITEMS.map(item => {
+    const merged = { ...item, ...(overrides[item.id] || {}) } as SearchPriceItem;
+    return { ...merged, label: makeLabel(merged) };
+  });
+
+  const customItems = custom.map((item, idx) => {
+    const normalized = {
+      id: item.id || 'custom-' + idx,
+      category: item.category || 'Custom',
+      description: item.description || '',
+      size: item.size || '',
+      price: Number(item.price) || 0,
+      priceType: item.priceType === 'fixed' ? 'fixed' : 'psm',
+    } as SearchPriceItem;
+    return { ...normalized, label: makeLabel(normalized) };
+  });
+
+  return [...base, ...customItems];
+}
+
 export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder = 'Description', className = '' }: Props) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  const [priceItems, setPriceItems] = useState<SearchPriceItem[]>(() => loadPriceItems());
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const isFocused = useRef(false);
 
-  const results = value.length >= 2
-    ? PRICE_ITEMS.filter(item =>
-        item.label.toLowerCase().includes(value.toLowerCase()) ||
-        item.category.toLowerCase().includes(value.toLowerCase()) ||
-        item.description.toLowerCase().includes(value.toLowerCase())
-      ).slice(0, 10)
-    : [];
+  const results = useMemo(() => {
+    if (value.length < 2) return [];
+    const q = value.toLowerCase();
+    return priceItems.filter(item =>
+      item.label.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q) ||
+      item.description.toLowerCase().includes(q)
+    ).slice(0, 10);
+  }, [priceItems, value]);
+
+  useEffect(() => {
+    function refreshPrices() { setPriceItems(loadPriceItems()); }
+    window.addEventListener('storage', refreshPrices);
+    window.addEventListener('focus', refreshPrices);
+    refreshPrices();
+    return () => {
+      window.removeEventListener('storage', refreshPrices);
+      window.removeEventListener('focus', refreshPrices);
+    };
+  }, []);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -39,11 +99,10 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  function handleSelect(item: typeof PRICE_ITEMS[0]) {
+  function handleSelect(item: SearchPriceItem) {
     onChange(item.label);
     onSelectPrice(item.price, item.priceType);
     setOpen(false);
-    // Restore focus after selection
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -68,6 +127,7 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
         }}
         onFocus={() => {
           isFocused.current = true;
+          setPriceItems(loadPriceItems());
           if (value.length >= 2 && results.length > 0) setOpen(true);
         }}
         onBlur={() => {
@@ -98,7 +158,7 @@ export function PriceAutocomplete({ value, onChange, onSelectPrice, placeholder 
                     ? 'bg-orange-500/20 text-orange-400'
                     : 'bg-green-500/20 text-green-400'
                 }`}>
-                  N${item.price.toFixed(2)} {item.priceType === 'psm' ? '/m²' : 'fixed'}
+                  N${item.price.toFixed(2)} {item.priceType === 'psm' ? '/m2' : 'fixed'}
                 </span>
                 <span className="text-xs text-text-muted">{item.category}</span>
               </div>
