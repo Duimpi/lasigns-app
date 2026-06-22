@@ -98,10 +98,10 @@ function ReceptionPageInner() {
 
       setItems([
         ...((quotes || [])
-          .filter((q: any) => !String(q.notes || '').startsWith('PAID:'))
+          .filter((q: any) => !String(q.notes || '').startsWith('PAID:') && !String(q.notes || '').startsWith('PAYMENT_REMOVED:'))
           .map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
         ...((jobs || [])
-          .filter((j: any) => !String(j.notes || '').startsWith('PAID:'))
+          .filter((j: any) => !String(j.notes || '').startsWith('PAID:') && !String(j.notes || '').startsWith('PAYMENT_REMOVED:'))
           .map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
 
@@ -199,8 +199,7 @@ function ReceptionPageInner() {
 
   async function deletePaymentHistory(item: any) {
     if (!confirm(`Remove payment history for ${item.client_name || 'this client'}?`)) return
-    const updatePayload: any = { notes: null }
-    if (item.type !== 'quote' && item.status === 'delivered') updatePayload.status = 'completed'
+    const updatePayload: any = { notes: 'PAYMENT_REMOVED: hidden from reception history' }
     const table = item.type === 'quote' ? 'quotes' : 'job_cards'
     const { error } = await supabase.from(table).update(updatePayload).eq('id', item.id)
     if (error) { toast.error(`Failed: ${error.message}`); return }
