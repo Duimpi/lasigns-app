@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, Suspense } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
@@ -90,15 +90,19 @@ function ReceptionPageInner() {
 
       // Outstanding payments
       const [{ data: quotes }, { data: jobs }] = await Promise.all([
-        supabase.from('quotes').select('id, quote_number, client_name, total, status, created_at')
-          .not('status', 'in', '(draft,cancelled)').order('created_at', { ascending: false }).limit(20),
-        supabase.from('job_cards').select('id, job_number, client_name, total, status, created_at')
+        supabase.from('quotes').select('id, quote_number, client_name, total, status, notes, created_at')
+          .not('status', 'in', '(draft,cancelled)').order('created_at', { ascending: false }).limit(50),
+        supabase.from('job_cards').select('id, job_number, client_name, total, status, notes, created_at')
           .in('status', ['completed']).not('job_number', 'like', 'WI-%').order('created_at', { ascending: false }),
       ])
 
       setItems([
-        ...((quotes || []).map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
-        ...((jobs || []).map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
+        ...((quotes || [])
+          .filter((q: any) => !String(q.notes || '').startsWith('PAID:'))
+          .map((q: any) => ({ ...q, type: 'quote' as const, number: q.quote_number }))),
+        ...((jobs || [])
+          .filter((j: any) => !String(j.notes || '').startsWith('PAID:'))
+          .map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))),
       ])
 
       // Walk-in list
@@ -111,14 +115,26 @@ function ReceptionPageInner() {
       setWalkinList(wiData || [])
 
       // Payment history - job cards and quotes with PAID notes
-      const { data: histData } = await supabase
-        .from('job_cards')
-        .select('id, job_number, title, client_name, total, notes, status, updated_at')
-        .like('notes', 'PAID:%')
-        .not('job_number', 'like', 'WI-%')
-        .order('updated_at', { ascending: false })
-        .limit(50)
-      setPaymentHistory(histData || [])
+      const [{ data: jobHist }, { data: quoteHist }] = await Promise.all([
+        supabase
+          .from('job_cards')
+          .select('id, job_number, title, client_name, total, notes, status, updated_at')
+          .like('notes', 'PAID:%')
+          .not('job_number', 'like', 'WI-%')
+          .order('updated_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('quotes')
+          .select('id, quote_number, client_name, total, notes, status, updated_at')
+          .like('notes', 'PAID:%')
+          .order('updated_at', { ascending: false })
+          .limit(50),
+      ])
+      const history = [
+        ...((jobHist || []).map((j: any) => ({ ...j, type: 'job', number: j.job_number }))),
+        ...((quoteHist || []).map((q: any) => ({ ...q, type: 'quote', number: q.quote_number, job_number: q.quote_number, title: 'Quote payment' }))),
+      ].sort((a: any, b: any) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime())
+      setPaymentHistory(history.slice(0, 50))
 
     } finally { setIsLoading(false) }
   }
@@ -137,13 +153,13 @@ function ReceptionPageInner() {
       await supabase.from('notifications').insert(admins.map((a: any) => ({
         recipient_id: a.id, sender_id: profile.id,
         type: 'job_collected',
-        title: '📦 Job Collected',
-        message: `${item.client_name} collected ${item.job_number} — ${item.title}`,
+        title: 'ðŸ“¦ Job Collected',
+        message: `${item.client_name} collected ${item.job_number} â€” ${item.title}`,
         entity_type: 'job_card', entity_id: item.id,
       })))
     }
 
-    toast.success(`✅ ${item.client_name} collected their order`)
+    toast.success(`âœ… ${item.client_name} collected their order`)
     loadData()
   }
 
@@ -156,9 +172,9 @@ function ReceptionPageInner() {
       const table = payingItem.type === 'quote' ? 'quotes' : 'job_cards'
       const paymentNote = `PAID: N$${amount} (${payMethod})${payNote ? ' - ' + payNote : ''} on ${new Date().toLocaleDateString()}`
       const updatePayload: any = { notes: paymentNote }
-      // Remove from outstanding by changing status to delivered when fully paid
+      // Remove from outstanding using a valid status for each table.
       if (fullyPaid) {
-        updatePayload.status = 'delivered'
+        updatePayload.status = payingItem.type === 'quote' ? 'completed' : 'delivered'
       }
       const { error } = await supabase.from(table).update(updatePayload).eq('id', payingItem.id)
       if (error) throw error
@@ -167,13 +183,13 @@ function ReceptionPageInner() {
       if (admins && profile) {
         await supabase.from('notifications').insert(admins.map((a: any) => ({
           recipient_id: a.id, sender_id: profile.id, type: 'payment_received',
-          title: '💰 Payment Received',
+          title: 'ðŸ’° Payment Received',
           message: `${payingItem.client_name} paid ${formatCurrency(amount)} (${payMethod}) for ${payingItem.number}`,
           entity_type: payingItem.type, entity_id: payingItem.id,
         })))
       }
 
-      toast.success(fullyPaid ? '✅ Fully paid!' : '⚠️ Partial payment recorded')
+      toast.success(fullyPaid ? 'âœ… Fully paid!' : 'âš ï¸ Partial payment recorded')
       setPayingItem(null); setPayAmount(''); setPayNote('')
       setTab('history')
       loadData()
@@ -184,8 +200,9 @@ function ReceptionPageInner() {
   async function deletePaymentHistory(item: any) {
     if (!confirm(`Remove payment history for ${item.client_name || 'this client'}?`)) return
     const updatePayload: any = { notes: null }
-    if (item.status === 'delivered') updatePayload.status = 'completed'
-    const { error } = await supabase.from('job_cards').update(updatePayload).eq('id', item.id)
+    if (item.type !== 'quote' && item.status === 'delivered') updatePayload.status = 'completed'
+    const table = item.type === 'quote' ? 'quotes' : 'job_cards'
+    const { error } = await supabase.from(table).update(updatePayload).eq('id', item.id)
     if (error) { toast.error(`Failed: ${error.message}`); return }
     toast.success('Payment history removed')
     loadData()
@@ -270,13 +287,13 @@ function ReceptionPageInner() {
       if (admins && profile) {
         await supabase.from('notifications').insert(admins.map((a: any) => ({
           recipient_id: a.id, sender_id: profile.id, type: 'payment_received',
-          title: '💰 Walk-in Payment',
-          message: `${walkinName} paid ${formatCurrency(total)} (${walkinMethod}) — walk-in`,
+          title: 'ðŸ’° Walk-in Payment',
+          message: `${walkinName} paid ${formatCurrency(total)} (${walkinMethod}) â€” walk-in`,
           entity_type: 'job_card', entity_id: null,
         })))
       }
 
-      toast.success(`Walk-in recorded — ${walkinName} paid ${formatCurrency(total)}`)
+      toast.success(`Walk-in recorded â€” ${walkinName} paid ${formatCurrency(total)}`)
       setWalkinName(''); setWalkinPhone(''); setWalkinAmount('')
       setWalkinNote(''); setWalkinClientId(null); setClientSuggestions([])
       loadData()
@@ -326,11 +343,11 @@ function ReceptionPageInner() {
         {/* Tabs */}
         <div className="flex gap-1 border-b border-border overflow-x-auto">
           {[
-            { key: 'collection', label: '📦 Collections', count: collectionItems.length },
-            { key: 'outstanding', label: '💳 Outstanding', count: filteredItems.length },
+            { key: 'collection', label: 'ðŸ“¦ Collections', count: collectionItems.length },
+            { key: 'outstanding', label: 'ðŸ’³ Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
-            { key: 'history', label: '🕑 History', count: paymentHistory.length },
+            { key: 'history', label: 'ðŸ•‘ History', count: paymentHistory.length },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as Tab)}
               className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-2 ${
@@ -361,7 +378,7 @@ function ReceptionPageInner() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                          <span className="font-mono text-xs text-accent">{item.number || item.job_number}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">
                             {item.status}
                           </span>
@@ -403,9 +420,9 @@ function ReceptionPageInner() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                          <span className="font-mono text-xs text-accent">{item.number || item.job_number}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-emerald-500/20 text-emerald-300">
-                            Collected ✓
+                            Collected âœ“
                           </span>
                         </div>
                         <p className="font-semibold text-text-primary">{item.client_name || 'Unknown'}</p>
@@ -478,7 +495,7 @@ function ReceptionPageInner() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        <span className="font-mono text-xs text-accent">{item.number || item.job_number}</span>
                         {methodMatch && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
                             methodMatch[1] === 'cash' ? 'bg-emerald-500/20 text-emerald-300' :
@@ -536,7 +553,7 @@ function ReceptionPageInner() {
                     ))}
                   </div>
                 )}
-                {walkinClientId && <p className="text-xs text-emerald-400 mt-1">✓ Existing client found</p>}
+                {walkinClientId && <p className="text-xs text-emerald-400 mt-1">âœ“ Existing client found</p>}
               </div>
               <div>
                 <label className="label">Phone</label>
@@ -651,7 +668,7 @@ function ReceptionPageInner() {
             <div className="flex items-center justify-between p-4 border-b border-border">
               <div>
                 <p className="font-semibold text-text-primary">Record Payment</p>
-                <p className="text-xs text-text-muted">{payingItem.number} · {payingItem.client_name}</p>
+                <p className="text-xs text-text-muted">{payingItem.number} Â· {payingItem.client_name}</p>
               </div>
               <button onClick={() => setPayingItem(null)} className="btn-icon w-7 h-7"><X className="w-4 h-4" /></button>
             </div>
@@ -679,7 +696,7 @@ function ReceptionPageInner() {
               <div className="flex gap-2">
                 <button onClick={() => setPayingItem(null)} className="btn-secondary flex-1">Cancel</button>
                 <button onClick={recordPayment} disabled={isSaving || !payAmount} className="btn-primary flex-1">
-                  {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : '✓ Confirm'}
+                  {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : 'âœ“ Confirm'}
                 </button>
               </div>
             </div>
@@ -693,3 +710,4 @@ function ReceptionPageInner() {
 export default function ReceptionPage() {
   return <Suspense fallback={null}><ReceptionPageInner /></Suspense>
 }
+
