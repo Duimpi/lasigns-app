@@ -343,11 +343,11 @@ function ReceptionPageInner() {
         {/* Tabs */}
         <div className="flex gap-1 border-b border-border overflow-x-auto">
           {[
-            { key: 'collection', label: 'ðŸ“¦ Collections', count: collectionItems.length },
-            { key: 'outstanding', label: 'ðŸ’³ Outstanding', count: filteredItems.length },
+            { key: 'collection', label: 'Collections', count: collectionItems.length },
+            { key: 'outstanding', label: 'Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
-            { key: 'history', label: 'ðŸ•‘ History', count: paymentHistory.length },
+            { key: 'history', label: 'History', count: paymentHistory.length },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as Tab)}
               className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center gap-2 ${
