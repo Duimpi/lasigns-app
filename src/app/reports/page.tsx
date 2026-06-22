@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
@@ -15,12 +15,15 @@ type QuickFilter = 'this_month' | 'last_month' | 'this_year'
 type ReportRow = {
   id: string
   quote_number?: string
+  job_number?: string
   client_name?: string | null
   status?: string | null
   payment_status?: string | null
   payment_method?: string | null
   payment_date?: string | null
   created_at?: string | null
+  updated_at?: string | null
+  notes?: string | null
   subtotal?: number | null
   vat_amount?: number | null
   total?: number | null
@@ -69,6 +72,45 @@ function numberValue(value: unknown) {
   return Number.isFinite(n) ? n : 0
 }
 
+function parsePaidAmount(notes?: string | null) {
+  const match = String(notes || '').match(/PAID:\s*N\$([\d,.]+)/i)
+  if (!match) return 0
+  return numberValue(match[1].replace(/,/g, ''))
+}
+
+function parsePaymentMethod(notes?: string | null) {
+  const match = String(notes || '').match(/\((cash|card|eft|other)\)/i)
+  return match?.[1]?.toLowerCase() || null
+}
+
+function parsePaymentDate(notes?: string | null) {
+  const match = String(notes || '').match(/\son\s(.+)$/i)
+  if (!match) return null
+  const date = new Date(match[1])
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+function normalizeReportRow(row: any, source: 'quote' | 'job_card'): ReportRow {
+  const notes = String(row.notes || '')
+  const hasPaidNote = notes.startsWith('PAID:')
+  const parsedAmount = parsePaidAmount(notes)
+  const total = numberValue(row.total)
+  const explicitPaymentStatus = String(row.payment_status || '').toLowerCase()
+  const paymentStatus = explicitPaymentStatus || (hasPaidNote
+    ? parsedAmount > 0 && parsedAmount < total ? 'partial' : 'paid'
+    : row.payment_status)
+
+  return {
+    ...row,
+    quote_number: row.quote_number || row.job_number || '',
+    is_retail: source === 'job_card' ? true : Boolean(row.is_retail),
+    payment_status: paymentStatus,
+    payment_method: row.payment_method || parsePaymentMethod(notes) || null,
+    amount_paid: numberValue(row.amount_paid) || (hasPaidNote ? parsedAmount : null),
+    payment_date: row.payment_date || parsePaymentDate(notes) || (hasPaidNote ? row.updated_at : null) || row.created_at || null,
+  }
+}
+
 function reportDate(row: ReportRow) {
   return row.payment_date || row.created_at || ''
 }
@@ -83,7 +125,8 @@ function isInRange(row: ReportRow, start: string, end: string) {
 function isCountable(row: ReportRow) {
   const status = String(row.status || '').toLowerCase()
   const paymentStatus = String(row.payment_status || '').toLowerCase()
-  return !row.deleted_at && status !== 'cancelled' && (paymentStatus === 'paid' || paymentStatus === 'partial')
+  const notes = String(row.notes || '')
+  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && status !== 'cancelled' && (paymentStatus === 'paid' || paymentStatus === 'partial')
 }
 
 function incomeFor(row: ReportRow) {
@@ -178,17 +221,43 @@ function ReportsPageInner() {
 
   const canView = isSuperAdmin(profile)
 
+  async function loadRowsFromRpc() {
+    const { data, error } = await supabase.rpc('get_reports_quotes', {
+      start_date: startDate,
+      end_date: endDate,
+    })
+    if (error) throw error
+    return ((data || []) as ReportRow[]).map(row => normalizeReportRow(row, 'quote'))
+  }
+
+  async function loadRowsDirectly() {
+    const [quotesResult, retailJobsResult] = await Promise.all([
+      supabase.from('quotes').select('*'),
+      supabase.from('job_cards').select('*').eq('is_retail', true),
+    ])
+
+    if (quotesResult.error) throw quotesResult.error
+    if (retailJobsResult.error) throw retailJobsResult.error
+
+    return [
+      ...((quotesResult.data || []) as any[]).map(row => normalizeReportRow(row, 'quote')),
+      ...((retailJobsResult.data || []) as any[]).map(row => normalizeReportRow(row, 'job_card')),
+    ]
+  }
+
   async function loadReport() {
     if (!canView) return
     setIsLoading(true)
     setError(null)
     try {
-      const { data, error } = await supabase.rpc('get_reports_quotes', {
-        start_date: startDate,
-        end_date: endDate,
-      })
-      if (error) throw error
-      setRows(((data || []) as ReportRow[]).filter(row => isCountable(row) && isInRange(row, startDate, endDate)))
+      let reportRows: ReportRow[]
+      try {
+        reportRows = await loadRowsFromRpc()
+      } catch (rpcError) {
+        console.warn('Reports RPC unavailable, loading directly from quotes and retail jobs.', rpcError)
+        reportRows = await loadRowsDirectly()
+      }
+      setRows(reportRows.filter(row => isCountable(row) && isInRange(row, startDate, endDate)))
     } catch (err: any) {
       const message = err?.message || 'Failed to load report'
       setError(message)
@@ -197,7 +266,6 @@ function ReportsPageInner() {
       setIsLoading(false)
     }
   }
-
   useEffect(() => { loadReport() }, [canView, startDate, endDate])
 
   const summary = useMemo<Summary>(() => {
