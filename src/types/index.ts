@@ -2,7 +2,7 @@
 // LA SIGNS & GRAPHICS CC — SYSTEM TYPES
 // ============================================================
 
-export type UserRole = 'admin' | 'staff'
+export type UserRole = 'super_admin' | 'admin' | 'staff'
 
 export interface Profile {
   id: string

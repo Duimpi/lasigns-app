@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Users, FileText, Briefcase,
-  ShoppingBag, MessageSquare, UserCog, Settings, LogOut, CreditCard,
+  ShoppingBag, MessageSquare, UserCog, Settings, LogOut, CreditCard, BarChart3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -28,6 +28,10 @@ const navItems = [
 const adminItems = [
   { href: '/staff', icon: UserCog, label: 'Staff' },
   { href: '/settings', icon: Settings, label: 'Settings' },
+]
+
+const reportsItems = [
+  { href: '/reports', icon: BarChart3, label: 'Reports' },
 ]
 
 export function Sidebar() {
@@ -81,12 +85,29 @@ export function Sidebar() {
           )
         })}
 
-        {profile?.role === 'admin' && (
+        {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
           <>
             <div className="pt-3 pb-1">
               <p className="text-[10px] uppercase tracking-widest text-text-muted px-3">Admin</p>
             </div>
             {adminItems.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+              return (
+                <Link key={item.href} href={item.href} className={cn('sidebar-link', isActive && 'active')}>
+                  <item.icon className={cn('w-4 h-4', isActive && 'text-accent')} />
+                  <span>{item.label}</span>
+                </Link>
+              )
+            })}
+          </>
+        )}
+
+        {profile?.role === 'super_admin' && (
+          <>
+            <div className="pt-3 pb-1">
+              <p className="text-[10px] uppercase tracking-widest text-text-muted px-3">Super Admin</p>
+            </div>
+            {reportsItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
               return (
                 <Link key={item.href} href={item.href} className={cn('sidebar-link', isActive && 'active')}>
