@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Users, FileText, Briefcase,
-  ShoppingBag, MessageSquare, UserCog, Settings, LogOut, CreditCard, BarChart3,
+  ShoppingBag, MessageSquare, UserCog, Settings, LogOut, CreditCard, BarChart3, CheckCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -22,6 +22,7 @@ const navItems = [
   { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/job-cards', icon: Briefcase, label: 'Job Cards' },
   { href: '/retail', icon: ShoppingBag, label: 'Retail' },
+  { href: '/completed-jobs', icon: CheckCircle2, label: 'Completed Jobs' },
   { href: '/messaging', icon: MessageSquare, label: 'Messages' },
   { href: '/reception', icon: CreditCard, label: 'Reception' },
 ]

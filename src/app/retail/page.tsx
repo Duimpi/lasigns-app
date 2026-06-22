@@ -19,11 +19,12 @@ import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import {
-  Plus, Download, Mail, Printer, Trash2, X, ShoppingBag
+  Plus, Download, Mail, Printer, Trash2, X, ShoppingBag, CheckCircle2
 } from 'lucide-react'
 import type { JobCardStatus, Priority, Worker, Client, RetailBranch, RetailStore } from '@/types'
 
 const STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']
+const ACTIVE_STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation']
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
@@ -201,7 +202,7 @@ function RetailPageInner() {
 
   const applyFilter = useCallback(
     debounce((list: RetailJob[], q: string, store: string, status: string) => {
-      let result = list.filter(j => j.is_retail === true)
+      let result = list.filter(j => j.is_retail === true && !['completed', 'delivered'].includes(j.status))
       if (store !== 'all') result = result.filter(j => j.store === store)
       if (status !== 'all') result = result.filter(j => j.status === status)
       if (q.trim()) {
@@ -226,6 +227,7 @@ function RetailPageInner() {
         .from('job_cards')
         .select(`*, items:job_card_items(*)`)
         .eq('is_retail', true)
+        .not('status', 'in', '(completed,delivered)')
         .order('created_at', { ascending: false })
       if (error) throw error
       setJobs((data as RetailJob[]) || [])
@@ -347,6 +349,8 @@ function RetailPageInner() {
       const discAmt = sub * ((data.discount || 0) / 100)
       const discountedSub = sub - discAmt
       const vat = discountedSub * (data.vat_rate / 100)
+      const normalizedStatus = normalizeJobStatus(data.status)
+      const completionDate = normalizedStatus === 'completed' ? new Date().toISOString() : null
 
       const payload = {
         title: data.title,
@@ -356,13 +360,15 @@ function RetailPageInner() {
         client_name: data.client_name || null,
         store: data.store,
         branch: data.branch,
-        status: normalizeJobStatus(data.status),
+        status: normalizedStatus,
         priority: normalizePriority(data.priority),
         assigned_worker: data.assigned_worker || null,
         due_date: data.due_date || null,
         is_retail: true,
         sales_rep: data.sales_rep || null,
-        date_completed: data.date_completed || null,
+        date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
+        completed_at: editingJob?.completed_at || completionDate,
+        completed_by: editingJob?.completed_by || (completionDate ? profile?.id || null : null),
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
         vat_amount: vat,
@@ -421,6 +427,19 @@ function RetailPageInner() {
     } finally { setIsSaving(false) }
   }
 
+  async function handleComplete(job: RetailJob) {
+    if (!confirm(`Mark ${job.job_number} as complete?`)) return
+    const completedAt = new Date().toISOString()
+    const { error } = await supabase.from('job_cards').update({
+      status: 'completed',
+      completed_at: completedAt,
+      completed_by: profile?.id || null,
+      date_completed: completedAt.slice(0, 10),
+    }).eq('id', job.id).eq('is_retail', true)
+    if (error) { toast.error(`Complete failed: ${error.message}`); return }
+    toast.success('Retail job completed')
+    loadJobs()
+  }
   async function handleDelete() {
     if (!deleteTarget) return
     setIsDeleting(true)
@@ -507,7 +526,7 @@ function RetailPageInner() {
             </button>
           ))}
           <div className="ml-2 flex gap-1">
-            {['all', ...STATUSES].map(s => (
+            {['all', ...ACTIVE_STATUSES].map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent/80 text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
@@ -558,6 +577,7 @@ function RetailPageInner() {
                         <button onClick={() => downloadAdminPDF(job)} className="btn-icon" title="Admin PDF"><Download className="w-3.5 h-3.5" /></button>
                         <button onClick={() => emailWorkerPDF(job)} className="btn-icon" title="Email worker PDF"><Mail className="w-3.5 h-3.5" /></button>
                         <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleComplete(job)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
                           <button onClick={() => setDeleteTarget(job)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                         )}

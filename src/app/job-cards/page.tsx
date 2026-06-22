@@ -17,10 +17,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
-import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
+import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckCircle2, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
 const STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation', 'completed', 'delivered']
+const ACTIVE_STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'installation']
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const VAT_RATE = 15
@@ -129,7 +130,7 @@ function JobCardsPageInner() {
 
   const applyFilter = useCallback(
     debounce((list: JobWithItems[], q: string, status: string, worker: string) => {
-      let result = list.filter(j => !j.is_retail)
+      let result = list.filter(j => !j.is_retail && !['completed', 'delivered'].includes(j.status))
       if (status !== 'all') result = result.filter(j => j.status === status)
       if (worker !== 'all') result = result.filter(j => j.assigned_worker === worker)
       if (q.trim()) {
@@ -160,6 +161,7 @@ function JobCardsPageInner() {
         .from('job_cards')
         .select(`*, items:job_card_items(*), client:clients(*, phones:client_phones(*), emails:client_emails(*))`)
         .eq('is_retail', false)
+        .not('status', 'in', '(completed,delivered)')
         .order('created_at', { ascending: false })
       if (error) throw error
       setJobs((data as JobWithItems[]) || [])
@@ -249,6 +251,7 @@ function JobCardsPageInner() {
       const sub = data.items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_price) || 0), 0)
       const vat = sub * (VAT_RATE / 100)
 
+      const completionDate = data.status === 'completed' ? new Date().toISOString() : null
       const payload: Record<string, unknown> = {
         title: data.title,
         description: data.description || null,
@@ -262,7 +265,9 @@ function JobCardsPageInner() {
         linked_quote_id: data.linked_quote_id || null,
         is_retail: false,
         sales_rep: null,
-        date_completed: data.date_completed || null,
+        date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
+        completed_at: editingJob?.completed_at || completionDate,
+        completed_by: editingJob?.completed_by || (completionDate ? profile?.id || null : null),
         vat_rate: VAT_RATE,
         subtotal: sub,
         vat_amount: vat,
@@ -336,6 +341,19 @@ function JobCardsPageInner() {
     } finally { setIsSaving(false) }
   }
 
+  async function handleComplete(job: JobWithItems) {
+    if (!confirm(`Mark ${job.job_number} as complete?`)) return
+    const completedAt = new Date().toISOString()
+    const { error } = await supabase.from('job_cards').update({
+      status: 'completed',
+      completed_at: completedAt,
+      completed_by: profile?.id || null,
+      date_completed: completedAt.slice(0, 10),
+    }).eq('id', job.id).eq('is_retail', false)
+    if (error) { toast.error(`Complete failed: ${error.message}`); return }
+    toast.success('Job card completed')
+    loadJobs()
+  }
   async function handleDelete() {
     if (!deleteTarget) return
     setIsDeleting(true)
@@ -458,7 +476,7 @@ function JobCardsPageInner() {
         <div className="flex gap-3 flex-wrap items-center">
           <SearchInput value={search} onChange={setSearch} placeholder="Search job cards..." className="max-w-xs" />
           <div className="flex gap-1 flex-wrap">
-            {['all', ...STATUSES].map(s => (
+            {['all', ...ACTIVE_STATUSES].map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded text-xs font-semibold uppercase tracking-wide transition-colors ${
                   statusFilter === s ? 'bg-accent text-text-inverse' : 'bg-bg-elevated text-text-secondary hover:text-text-primary border border-border'
@@ -524,6 +542,7 @@ function JobCardsPageInner() {
                           <button onClick={() => downloadPDF(job)} className="btn-icon" title="Download"><Download className="w-3.5 h-3.5" /></button>
                           <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                           <button onClick={() => emailJobCard(job)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleComplete(job)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                           {profile?.role === 'admin' && (
                             <button onClick={() => setDeleteTarget(job)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                           )}

@@ -49,7 +49,7 @@ export interface ClientEmail {
 
 // ─── QUOTES ─────────────────────────────────────────────────
 
-export type QuoteStatus = 'Draft' | 'Sent' | 'Approved' | 'In Production' | 'Completed' | 'Cancelled'
+export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'in_production' | 'completed' | 'cancelled'
 
 export interface Quote {
   id: string
@@ -69,6 +69,12 @@ export interface Quote {
   is_locked: boolean
   is_retail: boolean
   linked_job_card_id?: string
+  completed_at?: string
+  completed_by?: string
+  payment_status?: PaymentStatus
+  amount_paid?: number
+  payment_method?: PaymentMethod
+  payment_date?: string
   created_by?: string
   created_at: string
   updated_at: string
@@ -111,6 +117,14 @@ export interface JobCard {
   is_retail: boolean
   sales_rep?: string
   date_completed?: string
+  completed_at?: string
+  completed_by?: string
+  payment_status?: PaymentStatus
+  amount_paid?: number
+  payment_method?: PaymentMethod
+  payment_date?: string
+  collection_status?: 'pending' | 'collected'
+  collected_at?: string
   subtotal: number
   vat_amount: number
   total: number

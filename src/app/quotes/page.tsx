@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -20,11 +20,12 @@ import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import {
   Plus, Lock, Unlock, Download, Mail,
-  Trash2, X, FileText
+  Trash2, X, FileText, CheckCircle2
 } from 'lucide-react'
 import type { Quote, QuoteStatus, Client } from '@/types'
 
 const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
+const ACTIVE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'cancelled']
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -120,7 +121,7 @@ function QuotesPageInner() {
 
   const applyFilter = useCallback(
     debounce((list: QuoteWithItems[], q: string, status: string) => {
-      let result = list.filter(quote => !quote.is_retail)
+      let result = list.filter(quote => !quote.is_retail && quote.status !== 'completed')
       if (status !== 'all') result = result.filter(quote => quote.status === status)
       if (q.trim()) {
         const ql = q.toLowerCase()
@@ -143,6 +144,7 @@ function QuotesPageInner() {
         .from('quotes')
         .select(`*, items:quote_items(*)`)
         .eq('is_retail', false)
+        .neq('status', 'completed')
         .order('created_at', { ascending: false })
       if (error) throw error
       setQuotes((data as QuoteWithItems[]) || [])
@@ -296,6 +298,18 @@ function QuotesPageInner() {
     }
   }
 
+  async function handleComplete(quote: QuoteWithItems) {
+    if (!confirm(`Mark ${quote.quote_number} as complete?`)) return
+    const completedAt = new Date().toISOString()
+    const { error } = await supabase.from('quotes').update({
+      status: 'completed',
+      completed_at: completedAt,
+      completed_by: profile?.id || null,
+    }).eq('id', quote.id).eq('is_retail', false)
+    if (error) { toast.error(`Complete failed: ${error.message}`); return }
+    toast.success('Quote completed')
+    loadQuotes()
+  }
   async function handleToggleLock(quote: QuoteWithItems) {
     if (profile?.role !== 'admin') { toast.error('Only admins can lock/unlock quotes'); return }
     const { error } = await supabase.from('quotes').update({ is_locked: !quote.is_locked }).eq('id', quote.id)
@@ -333,7 +347,7 @@ function QuotesPageInner() {
         body: JSON.stringify({
           pdfBase64,
           fileName: `${quote.quote_number}.pdf`,
-          subject: `Quote ${quote.quote_number} â€” ${quote.client_name || 'Client'}`,
+          subject: `Quote ${quote.quote_number} — ${quote.client_name || 'Client'}`,
           clientName: quote.client_name || 'Client',
           type: 'quote',
         }),
@@ -341,7 +355,7 @@ function QuotesPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
-      toast.success('Email sent to admin@lasigns.com.na âœ…')
+      toast.success('Email sent to admin@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
       toast.error(`Email failed: ${err.message}`)
@@ -404,7 +418,7 @@ function QuotesPageInner() {
                         {quote.is_locked && <Lock className="w-3 h-3 text-text-muted" />}
                       </div>
                     </td>
-                    <td className="font-medium">{quote.client_name || 'â€”'}</td>
+                    <td className="font-medium">{quote.client_name || '—'}</td>
                     <td><StatusBadge status={quote.status} /></td>
                     <td className="text-text-secondary">{formatCurrency(quote.subtotal)}</td>
                     <td className="text-text-secondary">{formatCurrency(quote.vat_amount)}</td>
@@ -414,6 +428,7 @@ function QuotesPageInner() {
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
                         <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleComplete(quote)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
                           <>
                             <button onClick={() => handleToggleLock(quote)} className="btn-icon" title={quote.is_locked ? 'Unlock' : 'Lock'}>
@@ -435,7 +450,7 @@ function QuotesPageInner() {
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editingQuote ? `Edit â€” ${editingQuote.quote_number}` : 'New Quotation'}
+        title={editingQuote ? `Edit — ${editingQuote.quote_number}` : 'New Quotation'}
         size="xl"
         preventOutsideClose={true}
         actions={editingQuote && (
@@ -525,7 +540,7 @@ function QuotesPageInner() {
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit Price</div>
               <div className="col-span-1 text-right">Total</div>
-              <div className="col-span-1">mÂ²</div>
+              <div className="col-span-1">m²</div>
               <div className="col-span-1"></div>
             </div>
 
@@ -576,7 +591,7 @@ function QuotesPageInner() {
                       )}
                     </div>
                     <div className="col-span-1 text-xs text-text-muted text-center">
-                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : 'â€”'}
+                      {sqm ? <span className="text-accent font-semibold">{sqm}</span> : '—'}
                     </div>
                     <div className="col-span-1 flex justify-end">
                       {itemFields.length > 1 && (

@@ -16,11 +16,16 @@ type ReportRow = {
   id: string
   quote_number?: string
   job_number?: string
+  record_type?: 'quote' | 'retail' | 'job_card'
+  title?: string | null
   client_name?: string | null
   status?: string | null
   payment_status?: string | null
   payment_method?: string | null
   payment_date?: string | null
+  completed_at?: string | null
+  completed_by?: string | null
+  date_completed?: string | null
   created_at?: string | null
   updated_at?: string | null
   notes?: string | null
@@ -41,6 +46,7 @@ type Summary = {
   partialCount: number
   outstanding: number
   averageSale: number
+  completedJobCards: number
 }
 
 function toDateInput(date: Date) {
@@ -98,21 +104,24 @@ function normalizeReportRow(row: any, source: 'quote' | 'job_card'): ReportRow {
   const explicitPaymentStatus = String(row.payment_status || '').toLowerCase()
   const paymentStatus = explicitPaymentStatus || (hasPaidNote
     ? parsedAmount > 0 && parsedAmount < total ? 'partial' : 'paid'
-    : row.payment_status)
+    : 'unpaid')
+  const recordType = source === 'quote' ? 'quote' : row.is_retail ? 'retail' : 'job_card'
 
   return {
     ...row,
+    record_type: recordType,
     quote_number: row.quote_number || row.job_number || '',
-    is_retail: source === 'job_card' ? true : Boolean(row.is_retail),
+    is_retail: recordType === 'retail',
     payment_status: paymentStatus,
     payment_method: row.payment_method || parsePaymentMethod(notes) || null,
-    amount_paid: numberValue(row.amount_paid) || (hasPaidNote ? parsedAmount : null),
-    payment_date: row.payment_date || parsePaymentDate(notes) || (hasPaidNote ? row.updated_at : null) || row.created_at || null,
+    amount_paid: numberValue(row.amount_paid) || (hasPaidNote ? parsedAmount : 0),
+    payment_date: row.payment_date || parsePaymentDate(notes) || (hasPaidNote ? row.updated_at : null) || null,
+    completed_at: row.completed_at || row.date_completed || null,
   }
 }
 
 function reportDate(row: ReportRow) {
-  return row.payment_date || row.created_at || ''
+  return row.completed_at || row.payment_date || row.date_completed || row.created_at || ''
 }
 
 function isInRange(row: ReportRow, start: string, end: string) {
@@ -124,15 +133,15 @@ function isInRange(row: ReportRow, start: string, end: string) {
 
 function isCountable(row: ReportRow) {
   const status = String(row.status || '').toLowerCase()
-  const paymentStatus = String(row.payment_status || '').toLowerCase()
   const notes = String(row.notes || '')
-  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && status !== 'cancelled' && (paymentStatus === 'paid' || paymentStatus === 'partial')
+  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && status === 'completed'
 }
 
 function incomeFor(row: ReportRow) {
-  return String(row.payment_status || '').toLowerCase() === 'partial'
-    ? numberValue(row.amount_paid)
-    : numberValue(row.total)
+  const paymentStatus = String(row.payment_status || '').toLowerCase()
+  if (paymentStatus === 'partial') return numberValue(row.amount_paid)
+  if (paymentStatus === 'paid') return numberValue(row.total)
+  return 0
 }
 
 function vatFor(row: ReportRow) {
@@ -154,7 +163,7 @@ function downloadCsv(rows: ReportRow[], startDate: string, endDate: string) {
   const lines = rows.map(row => [
     row.quote_number || '',
     row.client_name || '',
-    row.is_retail ? 'Retail' : 'Quote',
+    row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote',
     row.status || '',
     row.payment_status || '',
     row.payment_method || '',
@@ -221,27 +230,18 @@ function ReportsPageInner() {
 
   const canView = isSuperAdmin(profile)
 
-  async function loadRowsFromRpc() {
-    const { data, error } = await supabase.rpc('get_reports_quotes', {
-      start_date: startDate,
-      end_date: endDate,
-    })
-    if (error) throw error
-    return ((data || []) as ReportRow[]).map(row => normalizeReportRow(row, 'quote'))
-  }
-
   async function loadRowsDirectly() {
-    const [quotesResult, retailJobsResult] = await Promise.all([
-      supabase.from('quotes').select('*'),
-      supabase.from('job_cards').select('*').eq('is_retail', true),
+    const [quotesResult, jobsResult] = await Promise.all([
+      supabase.from('quotes').select('*').eq('status', 'completed'),
+      supabase.from('job_cards').select('*').eq('status', 'completed').not('job_number', 'like', 'WI-%'),
     ])
 
     if (quotesResult.error) throw quotesResult.error
-    if (retailJobsResult.error) throw retailJobsResult.error
+    if (jobsResult.error) throw jobsResult.error
 
     return [
       ...((quotesResult.data || []) as any[]).map(row => normalizeReportRow(row, 'quote')),
-      ...((retailJobsResult.data || []) as any[]).map(row => normalizeReportRow(row, 'job_card')),
+      ...((jobsResult.data || []) as any[]).map(row => normalizeReportRow(row, 'job_card')),
     ]
   }
 
@@ -250,13 +250,7 @@ function ReportsPageInner() {
     setIsLoading(true)
     setError(null)
     try {
-      let reportRows: ReportRow[]
-      try {
-        reportRows = await loadRowsFromRpc()
-      } catch (rpcError) {
-        console.warn('Reports RPC unavailable, loading directly from quotes and retail jobs.', rpcError)
-        reportRows = await loadRowsDirectly()
-      }
+      const reportRows = await loadRowsDirectly()
       setRows(reportRows.filter(row => isCountable(row) && isInRange(row, startDate, endDate)))
     } catch (err: any) {
       const message = err?.message || 'Failed to load report'
@@ -270,8 +264,8 @@ function ReportsPageInner() {
 
   const summary = useMemo<Summary>(() => {
     const totalIncome = rows.reduce((sum, row) => sum + incomeFor(row), 0)
-    const normalIncome = rows.filter(row => !row.is_retail).reduce((sum, row) => sum + incomeFor(row), 0)
-    const retailIncome = rows.filter(row => row.is_retail).reduce((sum, row) => sum + incomeFor(row), 0)
+    const normalIncome = rows.filter(row => row.record_type === 'quote').reduce((sum, row) => sum + incomeFor(row), 0)
+    const retailIncome = rows.filter(row => row.record_type === 'retail').reduce((sum, row) => sum + incomeFor(row), 0)
     const paidCount = rows.filter(row => String(row.payment_status || '').toLowerCase() === 'paid').length
     const partialCount = rows.filter(row => String(row.payment_status || '').toLowerCase() === 'partial').length
     const outstanding = rows.reduce((sum, row) => sum + Math.max(0, numberValue(row.total) - numberValue(row.amount_paid || (String(row.payment_status).toLowerCase() === 'paid' ? row.total : 0))), 0)
@@ -284,12 +278,13 @@ function ReportsPageInner() {
       partialCount,
       outstanding,
       averageSale: rows.length ? totalIncome / rows.length : 0,
+      completedJobCards: rows.filter(row => row.record_type === 'job_card').length,
     }
   }, [rows])
 
   const monthly = useMemo(() => groupSum(rows, row => (reportDate(row).slice(0, 7) || 'Unknown')), [rows])
   const byStatus = useMemo(() => groupSum(rows, row => row.status || 'Unknown'), [rows])
-  const retailVsNormal = useMemo(() => groupSum(rows, row => row.is_retail ? 'Retail' : 'Normal quotes'), [rows])
+  const retailVsNormal = useMemo(() => groupSum(rows, row => row.record_type === 'job_card' ? 'Job Cards' : row.is_retail ? 'Retail' : 'Quotes'), [rows])
   const topClients = useMemo(() => groupSum(rows, row => row.client_name || 'Unknown').slice(0, 8), [rows])
   const paymentMethods = useMemo(() => groupSum(rows.filter(row => row.payment_method), row => row.payment_method || 'Unknown'), [rows])
 
@@ -311,7 +306,7 @@ function ReportsPageInner() {
     <AppShell>
       <PageHeader
         title="REPORTS"
-        subtitle={`${rows.length} paid or partial quote records`}
+        subtitle={`${rows.length} completed records`}
         actions={
           <button onClick={() => downloadCsv(rows, startDate, endDate)} className="btn-primary btn-sm" disabled={rows.length === 0}>
             <Download className="w-4 h-4" /> Export CSV
@@ -346,20 +341,21 @@ function ReportsPageInner() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           <StatCard label="Total income" value={formatCurrency(summary.totalIncome)} />
-          <StatCard label="Normal quotes income" value={formatCurrency(summary.normalIncome)} />
+          <StatCard label="Quote income" value={formatCurrency(summary.normalIncome)} />
           <StatCard label="Retail income" value={formatCurrency(summary.retailIncome)} />
           <StatCard label="VAT total" value={formatCurrency(summary.vatTotal)} />
-          <StatCard label="Paid quotes" value={summary.paidCount} />
+          <StatCard label="Paid records" value={summary.paidCount} />
           <StatCard label="Partial payments" value={summary.partialCount} />
           <StatCard label="Outstanding unpaid" value={formatCurrency(summary.outstanding)} />
           <StatCard label="Average sale value" value={formatCurrency(summary.averageSale)} />
+          <StatCard label="Completed job cards" value={summary.completedJobCards} />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {[
             ['Monthly income', monthly],
             ['Income by status', byStatus],
-            ['Retail vs normal quotes', retailVsNormal],
+            ['Income by type', retailVsNormal],
             ['Top clients by income', topClients],
             ['Payment method breakdown', paymentMethods],
           ].map(([title, data]) => (
@@ -377,13 +373,13 @@ function ReportsPageInner() {
           {isLoading ? (
             <div className="py-16 text-center text-text-muted">Loading report...</div>
           ) : rows.length === 0 ? (
-            <div className="py-16 text-center text-text-muted">No paid or partial quotes found for this period.</div>
+            <div className="py-16 text-center text-text-muted">No completed records found for this period.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table min-w-[1100px]">
                 <thead>
                   <tr>
-                    <th>Quote #</th><th>Client</th><th>Type</th><th>Status</th><th>Payment</th><th>Method</th>
+                    <th>Number</th><th>Client</th><th>Type</th><th>Status</th><th>Payment</th><th>Method</th>
                     <th>Subtotal</th><th>VAT</th><th>Total</th><th>Amount paid</th><th>Date</th>
                   </tr>
                 </thead>
@@ -392,7 +388,7 @@ function ReportsPageInner() {
                     <tr key={row.id}>
                       <td className="font-mono text-accent">{row.quote_number || '-'}</td>
                       <td>{row.client_name || '-'}</td>
-                      <td>{row.is_retail ? 'Retail' : 'Quote'}</td>
+                      <td>{row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote'}</td>
                       <td>{row.status || '-'}</td>
                       <td>{row.payment_status || '-'}</td>
                       <td>{row.payment_method || '-'}</td>
