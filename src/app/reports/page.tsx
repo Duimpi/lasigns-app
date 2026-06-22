@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { BarChart3, Download, ShieldAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { isSuperAdmin } from '@/lib/auth/superAdmin'
 
 type QuickFilter = 'this_month' | 'last_month' | 'this_year'
 
@@ -175,7 +176,7 @@ function ReportsPageInner() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const canView = profile?.role === 'super_admin'
+  const canView = isSuperAdmin(profile)
 
   async function loadReport() {
     if (!canView) return

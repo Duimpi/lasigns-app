@@ -6,6 +6,10 @@ ALTER TABLE profiles
   ADD CONSTRAINT profiles_role_check
   CHECK (role IN ('super_admin', 'admin', 'staff'));
 
+UPDATE profiles
+SET role = 'super_admin'
+WHERE lower(email) IN ('lasigns.d@gmail.com', 'baganiholdings@gmail.com');
+
 CREATE OR REPLACE FUNCTION is_super_admin(uid uuid DEFAULT auth.uid())
 RETURNS boolean
 LANGUAGE sql

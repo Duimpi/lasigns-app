@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { supabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
+import { isSuperAdmin } from '@/lib/auth/superAdmin'
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -85,7 +86,7 @@ export function Sidebar() {
           )
         })}
 
-        {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
+        {(profile?.role === 'admin' || isSuperAdmin(profile)) && (
           <>
             <div className="pt-3 pb-1">
               <p className="text-[10px] uppercase tracking-widest text-text-muted px-3">Admin</p>
@@ -102,7 +103,7 @@ export function Sidebar() {
           </>
         )}
 
-        {profile?.role === 'super_admin' && (
+        {isSuperAdmin(profile) && (
           <>
             <div className="pt-3 pb-1">
               <p className="text-[10px] uppercase tracking-widest text-text-muted px-3">Super Admin</p>
