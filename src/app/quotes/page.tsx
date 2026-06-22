@@ -300,11 +300,8 @@ function QuotesPageInner() {
 
   async function handleComplete(quote: QuoteWithItems) {
     if (!confirm(`Mark ${quote.quote_number} as complete?`)) return
-    const completedAt = new Date().toISOString()
     const { error } = await supabase.from('quotes').update({
       status: 'completed',
-      completed_at: completedAt,
-      completed_by: profile?.id || null,
     }).eq('id', quote.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
     toast.success('Quote completed')

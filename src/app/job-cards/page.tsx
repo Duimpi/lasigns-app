@@ -266,8 +266,6 @@ function JobCardsPageInner() {
         is_retail: false,
         sales_rep: null,
         date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
-        completed_at: editingJob?.completed_at || completionDate,
-        completed_by: editingJob?.completed_by || (completionDate ? profile?.id || null : null),
         vat_rate: VAT_RATE,
         subtotal: sub,
         vat_amount: vat,
@@ -346,8 +344,6 @@ function JobCardsPageInner() {
     const completedAt = new Date().toISOString()
     const { error } = await supabase.from('job_cards').update({
       status: 'completed',
-      completed_at: completedAt,
-      completed_by: profile?.id || null,
       date_completed: completedAt.slice(0, 10),
     }).eq('id', job.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
@@ -637,7 +633,6 @@ function JobCardsPageInner() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
-                  <div><label className="label">Date Completed</label><input {...register('date_completed')} type="date" className="input" /></div>
                 </div>
 
                 <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
