@@ -12,20 +12,22 @@ import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { formatDate, formatCurrency, debounce } from '@/lib/utils'
-import { generateQuotePDF } from '@/lib/pdf/generator'
+import { generateQuotePDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
 import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import {
-  Plus, Lock, Unlock, Download, Mail,
-  Trash2, X, FileText, CheckCircle2
+  Plus, Lock, Unlock, Download, Mail, Printer,
+  Trash2, X, FileText, CheckCircle2, CheckSquare, Square, Layers
 } from 'lucide-react'
-import type { Quote, QuoteStatus, Client } from '@/types'
+import type { Quote, QuoteStatus, Client, Worker } from '@/types'
 
 const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']
 const ACTIVE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'cancelled']
+const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
+const QUOTE_WORKER_RE = /\[LA_WORKER:([^\]]+)\]/i
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -45,6 +47,7 @@ const quoteSchema = z.object({
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
   valid_until: z.string().optional(),
+  assigned_worker: z.string().optional().default(''),
   discount: z.coerce.number().default(0),
   items: z.array(lineItemSchema),
 })
@@ -53,6 +56,41 @@ type QuoteFormData = z.infer<typeof quoteSchema>
 
 interface QuoteWithItems extends Quote {
   items: Quote['items']
+  assigned_worker?: Worker | ''
+}
+
+function getQuoteWorker(notes?: string | null): Worker | '' {
+  const match = String(notes || '').match(QUOTE_WORKER_RE)
+  const worker = match?.[1]?.trim()
+  return worker && WORKERS.includes(worker as Worker) ? worker as Worker : ''
+}
+
+function stripQuoteWorkerTag(notes?: string | null) {
+  return String(notes || '')
+    .replace(QUOTE_WORKER_RE, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function notesWithQuoteWorker(notes?: string | null, worker?: string | null) {
+  const cleanNotes = stripQuoteWorkerTag(notes)
+  return [cleanNotes, worker ? '[LA_WORKER:' + worker + ']' : ''].filter(Boolean).join('\n')
+}
+
+function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
+  return {
+    ...quote,
+    notes: stripQuoteWorkerTag(quote.notes),
+    assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
+  }
+}
+
+function quoteForPrint(quote: QuoteWithItems) {
+  return {
+    ...quote,
+    notes: stripQuoteWorkerTag(quote.notes),
+    assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
+  }
 }
 
 function QuotesPageInner() {
@@ -71,12 +109,14 @@ function QuotesPageInner() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [clients, setClients] = useState<Client[]>([])
   const [clientSearch, setClientSearch] = useState('')
+  const [selectedForPrint, setSelectedForPrint] = useState<string[]>([])
+  const [printSelectMode, setPrintSelectMode] = useState(false)
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<QuoteFormData>({
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -147,7 +187,7 @@ function QuotesPageInner() {
         .neq('status', 'completed')
         .order('created_at', { ascending: false })
       if (error) throw error
-      setQuotes((data as QuoteWithItems[]) || [])
+      setQuotes(((data as QuoteWithItems[]) || []).map(normalizeQuoteForUi))
     } catch { toast.error('Failed to load quotes') }
     finally { setIsLoading(false) }
   }
@@ -161,7 +201,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -177,8 +217,9 @@ function QuotesPageInner() {
       client_address: quote.client_address || '',
       status: quote.status,
       vat_rate: quote.vat_rate,
-      notes: quote.notes || '',
+      notes: stripQuoteWorkerTag(quote.notes),
       valid_until: quote.valid_until || '',
+      assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes),
       discount: (quote as any).discount || 0,
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
@@ -227,7 +268,7 @@ function QuotesPageInner() {
         
         vat_amount: vat,
         total: discountedSub + vat,
-        notes: data.notes || null,
+        notes: notesWithQuoteWorker(data.notes, data.assigned_worker) || null,
         valid_until: data.valid_until || null,
         is_retail: false,
         created_by: null,
@@ -328,13 +369,42 @@ function QuotesPageInner() {
   }
 
   function downloadPDF(quote: QuoteWithItems) {
-    const doc = generateQuotePDF(quote)
+    const doc = generateQuotePDF(quoteForPrint(quote))
     doc.save(`${quote.quote_number}.pdf`)
     toast.success('PDF downloaded')
   }
 
+  function printQuote(quote: QuoteWithItems) {
+    const doc = generateQuoteJobCardPDF(quoteForPrint(quote))
+    const blob = doc.output('blob')
+    const url = URL.createObjectURL(blob)
+    const win = window.open(url, '_blank')
+    win?.print()
+  }
+
+  function togglePrintSelect(quoteId: string) {
+    setSelectedForPrint(prev => {
+      if (prev.includes(quoteId)) return prev.filter(id => id !== quoteId)
+      if (prev.length >= 2) { toast.error('Select max 2 quotes'); return prev }
+      return [...prev, quoteId]
+    })
+  }
+
+  function printSelectedQuotes() {
+    if (selectedForPrint.length === 0) { toast.error('Select 1 or 2 quotes'); return }
+    const quote1 = quotes.find(q => q.id === selectedForPrint[0])
+    const quote2 = selectedForPrint[1] ? quotes.find(q => q.id === selectedForPrint[1]) : quote1
+    if (!quote1 || !quote2) return
+    const doc = generateQuoteJobCardPDF(quoteForPrint(quote1), quoteForPrint(quote2))
+    const blob = doc.output('blob')
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')?.print()
+    setPrintSelectMode(false)
+    setSelectedForPrint([])
+  }
+
   async function emailQuote(quote: QuoteWithItems) {
-    const doc = generateQuotePDF(quote)
+    const doc = generateQuotePDF(quoteForPrint(quote))
     const pdfBase64 = doc.output('datauristring').split(',')[1]
     const toastId = toast.loading('Sending email...')
     try {
@@ -369,9 +439,23 @@ function QuotesPageInner() {
         title="QUOTES"
         subtitle={`${filtered.length} quotes`}
         actions={
-          <button onClick={openCreate} className="btn-primary btn-sm">
-            <Plus className="w-4 h-4" /> New Quote
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setPrintSelectMode(!printSelectMode); setSelectedForPrint([]) }}
+              className={`btn-sm ${printSelectMode ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              <Layers className="w-4 h-4" />
+              {printSelectMode ? 'Cancel' : 'Print 2 Quotes'}
+            </button>
+            {printSelectMode && selectedForPrint.length > 0 && (
+              <button onClick={printSelectedQuotes} className="btn-primary btn-sm">
+                <Printer className="w-4 h-4" /> Print ({selectedForPrint.length}/2)
+              </button>
+            )}
+            <button onClick={openCreate} className="btn-primary btn-sm">
+              <Plus className="w-4 h-4" /> New Quote
+            </button>
+          </div>
         }
       />
 
@@ -390,6 +474,13 @@ function QuotesPageInner() {
           </div>
         </div>
 
+        {printSelectMode && (
+          <div className="bg-accent-muted border border-accent/30 rounded-lg px-4 py-3 text-sm text-accent flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Select 1 quote to print two copies, or select 2 quotes to print them together on one A4 page.
+          </div>
+        )}
+
         <div className="card overflow-hidden">
           {isLoading ? <TableSkeleton rows={8} cols={6} /> : filtered.length === 0 ? (
             <div className="py-16 text-center">
@@ -401,14 +492,23 @@ function QuotesPageInner() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Quote #</th><th>Client</th><th>Status</th>
+                  {printSelectMode && <th className="w-8"></th>}
+                  <th>Quote #</th><th>Client</th><th>Worker</th><th>Status</th>
                   <th>Subtotal</th><th>VAT</th><th>Total</th>
                   <th>Date</th><th className="w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(quote => (
-                  <tr key={quote.id} onClick={() => openEdit(quote)}>
+                {filtered.map(quote => {
+                  const isSelected = selectedForPrint.includes(quote.id)
+                  return (
+                  <tr key={quote.id} onClick={() => printSelectMode ? togglePrintSelect(quote.id) : openEdit(quote)}
+                    className={isSelected ? 'bg-accent-muted border-l-2 border-accent' : ''}>
+                    {printSelectMode && (
+                      <td onClick={e => { e.stopPropagation(); togglePrintSelect(quote.id) }}>
+                        {isSelected ? <CheckSquare className="w-4 h-4 text-accent" /> : <Square className="w-4 h-4 text-text-muted" />}
+                      </td>
+                    )}
                     <td>
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-accent font-semibold">{quote.quote_number}</span>
@@ -416,6 +516,7 @@ function QuotesPageInner() {
                       </div>
                     </td>
                     <td className="font-medium">{quote.client_name || '—'}</td>
+                    <td className="text-text-secondary text-sm">{quote.assigned_worker || <span className="text-text-muted">-</span>}</td>
                     <td><StatusBadge status={quote.status} /></td>
                     <td className="text-text-secondary">{formatCurrency(quote.subtotal)}</td>
                     <td className="text-text-secondary">{formatCurrency(quote.vat_amount)}</td>
@@ -424,6 +525,7 @@ function QuotesPageInner() {
                     <td>
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => printQuote(quote)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                         <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
                         <button onClick={() => handleComplete(quote)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
@@ -437,7 +539,7 @@ function QuotesPageInner() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           )}
@@ -453,6 +555,7 @@ function QuotesPageInner() {
         actions={editingQuote && (
           <div className="flex gap-2">
             <button onClick={() => downloadPDF(editingQuote)} className="btn-secondary btn-sm"><Download className="w-3.5 h-3.5" /> PDF</button>
+            <button onClick={() => printQuote(editingQuote)} className="btn-secondary btn-sm"><Printer className="w-3.5 h-3.5" /> Print</button>
             <button onClick={() => emailQuote(editingQuote)} className="btn-secondary btn-sm"><Mail className="w-3.5 h-3.5" /> Email</button>
           </div>
         )}
@@ -503,7 +606,7 @@ function QuotesPageInner() {
           </div>
 
           {/* Quote details */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="label">Status</label>
               <select {...register('status')} className="input">
@@ -517,6 +620,13 @@ function QuotesPageInner() {
             <div>
               <label className="label">Valid Until</label>
               <input {...register('valid_until')} type="date" className="input" />
+            </div>
+            <div>
+              <label className="label">Assigned Worker</label>
+              <select {...register('assigned_worker')} className="input">
+                <option value="">-- Unassigned --</option>
+                {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
+              </select>
             </div>
           </div>
 

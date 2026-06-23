@@ -342,6 +342,91 @@ export function generateTwoJobCardsPDF(job1: JobCard, job2: JobCard): jsPDF {
   return doc
 }
 
+type QuoteJobCardPrintInput = {
+  quote_number: string
+  client_name?: string | null
+  client_email?: string | null
+  client_address?: string | null
+  status?: string
+  vat_rate?: number
+  subtotal?: number
+  vat_amount?: number
+  total?: number
+  notes?: string | null
+  valid_until?: string | null
+  assigned_worker?: string | null
+  items?: { description: string; quantity: number; unit_price?: number; total?: number; line_total?: number; size?: string | null }[]
+  created_at?: string
+}
+
+function quoteToJobCard(quote: QuoteJobCardPrintInput): JobCard {
+  const createdAt = quote.created_at || new Date().toISOString()
+  return {
+    id: '',
+    job_number: quote.quote_number,
+    title: quote.quote_number,
+    description: quote.notes || undefined,
+    notes: quote.notes || undefined,
+    client_id: undefined,
+    client_name: quote.client_name || '',
+    status: 'pending',
+    priority: 'normal',
+    assigned_worker: quote.assigned_worker || undefined,
+    due_date: quote.valid_until || undefined,
+    is_retail: false,
+    sales_rep: '',
+    subtotal: quote.subtotal || 0,
+    vat_amount: quote.vat_amount || 0,
+    total: quote.total || 0,
+    vat_rate: quote.vat_rate || 15,
+    created_at: createdAt,
+    updated_at: createdAt,
+    client: {
+      id: '',
+      name: quote.client_name || '',
+      company: '',
+      address: quote.client_address || '',
+      created_at: createdAt,
+      updated_at: createdAt,
+      phones: [],
+      emails: quote.client_email ? [{
+        id: '',
+        client_id: '',
+        email: quote.client_email,
+        label: 'Primary',
+        is_primary: true,
+      }] : [],
+    },
+    items: (quote.items || []).map((item, idx) => ({
+      id: '',
+      job_card_id: '',
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price || 0,
+      line_total: item.line_total || item.total || 0,
+      size: item.size || undefined,
+      sort_order: idx,
+    })),
+  } as JobCard
+}
+
+/**
+ * Generate quote as the same A4 landscape / 2-up A5 layout used by Job Cards.
+ * If no second quote is supplied, the first quote is duplicated on the right.
+ */
+export function generateQuoteJobCardPDF(quote: QuoteJobCardPrintInput, secondQuote: QuoteJobCardPrintInput = quote): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  })
+
+  drawSingleJobCard(doc, quoteToJobCard(quote), 0)
+  drawSingleJobCard(doc, quoteToJobCard(secondQuote), 148.5)
+
+  return doc
+}
+
 /**
  * Generate Quote PDF (portrait A4, with prices)
  */
