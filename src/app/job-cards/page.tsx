@@ -47,6 +47,7 @@ const jobSchema = z.object({
   due_date: z.string().optional().default(''),
   linked_quote_id: z.string().optional(),
   date_completed: z.string().optional().default(''),
+  for_collection: z.boolean().default(false),
   items: z.array(lineItemSchema),
 })
 
@@ -88,7 +89,7 @@ function JobCardsPageInner() {
     defaultValues: {
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', date_completed: '',
+      due_date: '', date_completed: '', for_collection: false,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -195,7 +196,7 @@ function JobCardsPageInner() {
     reset({
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', date_completed: '',
+      due_date: '', date_completed: '', for_collection: false,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -217,6 +218,7 @@ function JobCardsPageInner() {
       due_date: job.due_date || '',
       linked_quote_id: job.linked_quote_id || undefined,
       date_completed: job.date_completed || '',
+      for_collection: job.collection_status === 'pending',
       items: job.items.length > 0
         ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => {
             const parts = (i.size || '').split('x')
@@ -266,6 +268,7 @@ function JobCardsPageInner() {
         is_retail: false,
         sales_rep: null,
         date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
+        collection_status: data.for_collection ? 'pending' : null,
         vat_rate: VAT_RATE,
         subtotal: sub,
         vat_amount: vat,
@@ -345,6 +348,7 @@ function JobCardsPageInner() {
     const { error } = await supabase.from('job_cards').update({
       status: 'completed',
       date_completed: completedAt.slice(0, 10),
+      collection_status: job.collection_status === 'pending' ? 'pending' : null,
     }).eq('id', job.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
     toast.success('Job card completed')
@@ -636,6 +640,11 @@ function JobCardsPageInner() {
                 </div>
 
                 <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
+                <label className="flex items-center gap-2 text-sm text-text-secondary">
+                  <input {...register('for_collection')} type="checkbox" className="accent-accent" />
+                  Client will collect this job
+                </label>
+
                 <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
               </div>
             </div>

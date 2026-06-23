@@ -8,7 +8,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Eye, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -122,6 +122,31 @@ export default function CompletedJobsPage() {
     }
   }
 
+
+  function viewCompleted(row: CompletedRow) {
+    alert([
+      `Number: ${row.number}`,
+      `Client: ${row.client_name || '-'}`,
+      `Type: ${typeLabel(row.type)}`,
+      `Amount: ${formatCurrency(row.amount)}`,
+      `Payment: ${row.payment_status}`,
+      `Completed: ${row.completed_at ? formatDate(row.completed_at) : '-'}`,
+      `Notes: ${row.notes || '-'}`,
+    ].join('\n'))
+  }
+
+  async function deleteCompleted(row: CompletedRow) {
+    if (!confirm(`Delete ${row.number}? This will remove it from Completed Jobs and Reports.`)) return
+    try {
+      const table = row.type === 'quote' ? 'quotes' : 'job_cards'
+      const { error } = await supabase.from(table).delete().eq('id', row.id)
+      if (error) throw error
+      toast.success('Completed job deleted')
+      loadCompleted()
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete completed job')
+    }
+  }
   const clients = useMemo(() => Array.from(new Set(rows.map(row => row.client_name).filter(Boolean) as string[])).sort(), [rows])
 
   const filtered = useMemo(() => {
@@ -200,7 +225,7 @@ export default function CompletedJobsPage() {
               <table className="data-table min-w-[1000px]">
                 <thead>
                   <tr>
-                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th>
+                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-24">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -213,6 +238,12 @@ export default function CompletedJobsPage() {
                       <td><StatusBadge status={row.payment_status} /></td>
                       <td>{row.completed_at ? formatDate(row.completed_at) : '-'}</td>
                       <td>{row.completed_by_name}</td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

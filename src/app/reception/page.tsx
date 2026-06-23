@@ -84,7 +84,7 @@ function ReceptionPageInner() {
         .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
 
-      const pending = (collData || []).filter((j: any) => j.collection_status !== 'collected')
+      const pending = (collData || []).filter((j: any) => j.collection_status === 'pending')
       const collected = (collData || []).filter((j: any) => j.collection_status === 'collected')
       setCollectionItems(pending as CollectionItem[])
       setCollectedItems(collected as CollectionItem[])
