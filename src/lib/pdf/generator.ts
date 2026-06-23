@@ -9,7 +9,28 @@ import { LOGO_BASE64 } from './logo-base64'
 // NO PRICES shown (job card only, not invoice)
 // ============================================================
 
-function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
+type JobCardPrintOptions = {
+  pageNumber?: number
+  totalPages?: number
+  itemStart?: number
+  itemEnd?: number
+  totalItems?: number
+}
+
+const JOB_CARD_ROWS_PER_PAGE = 18
+
+function chunkJobItems<T>(items: T[] = [], size = JOB_CARD_ROWS_PER_PAGE): T[][] {
+  if (items.length === 0) return [[]]
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
+  return chunks
+}
+
+function withItemChunk<T extends { items?: any[] }>(job: T, items: any[]): T {
+  return { ...job, items }
+}
+
+function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: JobCardPrintOptions = {}) {
   const W = 148   // A5 width mm
   const H = 210   // A5 height mm
   const m = 5     // margin
@@ -82,6 +103,19 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
   doc.text('Worker:', xOffset + m + 1, y + 3.5)
   doc.setFont('helvetica', 'normal')
   doc.text(workerName || '-', xOffset + m + 15, y + 3.5)
+
+  if ((options.totalPages || 1) > 1) {
+    const itemRange = options.totalItems
+      ? `Items ${options.itemStart || 0}-${options.itemEnd || 0} of ${options.totalItems}`
+      : ''
+    doc.setFontSize(6.5)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`Page ${options.pageNumber || 1} of ${options.totalPages || 1}`, xOffset + m + iW - 1, y + 3.5, { align: 'right' })
+    if (itemRange) {
+      doc.setFont('helvetica', 'normal')
+      doc.text(itemRange, xOffset + m + iW - 1, y + 7.5, { align: 'right' })
+    }
+  }
 
   y += 6
 
@@ -175,7 +209,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
   // ── TABLE ROWS ────────────────────────────────────────────
   const items = job.items || []
   const ROW_H = 7
-  const MAX_ROWS = 18
+  const MAX_ROWS = JOB_CARD_ROWS_PER_PAGE
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)
@@ -311,17 +345,29 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
  * Generate A4 landscape with 2 A5 job card copies side by side
  * NO PRICES shown — job card only
  */
-export function generateJobCardPDF(job: JobCard): jsPDF {
+export function generateJobCardPDF(job: JobCard, _showPrices = false): jsPDF {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
     format: 'a4',
   })
 
-  // Left copy
-  drawSingleJobCard(doc, job, 0)
-  // Right copy
-  drawSingleJobCard(doc, job, 148.5)
+  const itemChunks = chunkJobItems(job.items || [])
+  itemChunks.forEach((items, idx) => {
+    if (idx > 0) doc.addPage('a4', 'landscape')
+    const itemStart = (idx * JOB_CARD_ROWS_PER_PAGE) + 1
+    const itemEnd = Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job.items || []).length)
+    const pageJob = withItemChunk(job, items)
+    const options = {
+      pageNumber: idx + 1,
+      totalPages: itemChunks.length,
+      itemStart,
+      itemEnd,
+      totalItems: (job.items || []).length,
+    }
+    drawSingleJobCard(doc, pageJob, 0, options)
+    drawSingleJobCard(doc, pageJob, 148.5, options)
+  })
 
   return doc
 }
@@ -336,8 +382,30 @@ export function generateTwoJobCardsPDF(job1: JobCard, job2: JobCard): jsPDF {
     format: 'a4',
   })
 
-  drawSingleJobCard(doc, job1, 0)
-  drawSingleJobCard(doc, job2, 148.5)
+  const job1Chunks = chunkJobItems(job1.items || [])
+  const job2Chunks = chunkJobItems(job2.items || [])
+  const pageCount = Math.max(job1Chunks.length, job2Chunks.length)
+
+  for (let idx = 0; idx < pageCount; idx++) {
+    if (idx > 0) doc.addPage('a4', 'landscape')
+
+    const job1Items = job1Chunks[idx] || []
+    const job2Items = job2Chunks[idx] || []
+    drawSingleJobCard(doc, withItemChunk(job1, job1Items), 0, {
+      pageNumber: idx + 1,
+      totalPages: pageCount,
+      itemStart: job1Items.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job1.items || []).length),
+      totalItems: (job1.items || []).length,
+    })
+    drawSingleJobCard(doc, withItemChunk(job2, job2Items), 148.5, {
+      pageNumber: idx + 1,
+      totalPages: pageCount,
+      itemStart: job2Items.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job2.items || []).length),
+      totalItems: (job2.items || []).length,
+    })
+  }
 
   return doc
 }
@@ -421,8 +489,31 @@ export function generateQuoteJobCardPDF(quote: QuoteJobCardPrintInput, secondQuo
     format: 'a4',
   })
 
-  drawSingleJobCard(doc, quoteToJobCard(quote), 0)
-  drawSingleJobCard(doc, quoteToJobCard(secondQuote), 148.5)
+  const leftJob = quoteToJobCard(quote)
+  const rightJob = quoteToJobCard(secondQuote)
+  const leftChunks = chunkJobItems(leftJob.items || [])
+  const rightChunks = chunkJobItems(rightJob.items || [])
+  const pageCount = Math.max(leftChunks.length, rightChunks.length)
+
+  for (let idx = 0; idx < pageCount; idx++) {
+    if (idx > 0) doc.addPage('a4', 'landscape')
+    const leftItems = leftChunks[idx] || []
+    const rightItems = rightChunks[idx] || []
+    drawSingleJobCard(doc, withItemChunk(leftJob, leftItems), 0, {
+      pageNumber: idx + 1,
+      totalPages: pageCount,
+      itemStart: leftItems.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (leftJob.items || []).length),
+      totalItems: (leftJob.items || []).length,
+    })
+    drawSingleJobCard(doc, withItemChunk(rightJob, rightItems), 148.5, {
+      pageNumber: idx + 1,
+      totalPages: pageCount,
+      itemStart: rightItems.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (rightJob.items || []).length),
+      totalItems: (rightJob.items || []).length,
+    })
+  }
 
   return doc
 }

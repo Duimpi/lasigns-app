@@ -36,7 +36,8 @@ interface CollectionItem {
   client_name: string
   total: number
   status: string
-  collection_status: string | null
+  notes?: string | null
+  collection_status?: string | null
   is_retail: boolean
   created_at: string
 }
@@ -80,14 +81,17 @@ function ReceptionPageInner() {
       // Completed non-retail job cards waiting for or already collected
       const { data: collData } = await supabase
         .from('job_cards')
-        .select('id, job_number, title, client_name, total, status, collection_status, notes, is_retail, created_at')
+        .select('id, job_number, title, client_name, total, status, notes, is_retail, created_at')
         .eq('status', 'completed')
         .eq('is_retail', false)
         .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
 
-      const pending = (collData || []).filter((j: any) => j.collection_status === 'pending' || String(j.notes || '').includes(COLLECTION_PENDING_TAG))
-      const collected = (collData || []).filter((j: any) => j.collection_status === 'collected' || String(j.notes || '').includes(COLLECTION_COLLECTED_TAG))
+      const pending = (collData || []).filter((j: any) => {
+        const notes = String(j.notes || '')
+        return notes.includes(COLLECTION_PENDING_TAG) && !notes.includes(COLLECTION_COLLECTED_TAG)
+      })
+      const collected = (collData || []).filter((j: any) => String(j.notes || '').includes(COLLECTION_COLLECTED_TAG))
       setCollectionItems(pending as CollectionItem[])
       setCollectedItems(collected as CollectionItem[])
 
@@ -142,8 +146,6 @@ function ReceptionPageInner() {
       ? currentNotes.replace(COLLECTION_PENDING_TAG, COLLECTION_COLLECTED_TAG)
       : [currentNotes, COLLECTION_COLLECTED_TAG].filter(Boolean).join('\n')
     const { error } = await supabase.from('job_cards').update({
-      collection_status: 'collected',
-      collected_at: new Date().toISOString(),
       notes: `${nextNotes}\nCollected on ${new Date().toLocaleDateString()}`,
     }).eq('id', item.id)
 

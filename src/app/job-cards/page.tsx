@@ -359,9 +359,14 @@ function JobCardsPageInner() {
   async function handleComplete(job: JobWithItems) {
     if (!confirm(`Mark ${job.job_number} as complete?`)) return
     const completedAt = new Date().toISOString()
+    const currentNotes = String(job.notes || '')
+    const shouldCollect = job.collection_status === 'pending' || currentNotes.includes(COLLECTION_PENDING_TAG)
     const completePayload: Record<string, unknown> = {
       status: 'completed',
       date_completed: completedAt.slice(0, 10),
+    }
+    if (shouldCollect && !currentNotes.includes(COLLECTION_PENDING_TAG)) {
+      completePayload.notes = [currentNotes, COLLECTION_PENDING_TAG].filter(Boolean).join('\n')
     }
     const { error } = await supabase.from('job_cards').update(completePayload).eq('id', job.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
