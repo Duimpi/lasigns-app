@@ -32,14 +32,6 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
     doc.text('LA Signs', xOffset + m + 2, y + 12)
   }
 
-  // ── ASSIGNED WORKER ──────────────────────────────────────
-  const workerName = job.assigned_worker || job.sales_rep || ''
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 0, 0)
-  doc.text('Worker:', xOffset + m + 44, y + 11)
-  doc.text(workerName || '-', xOffset + m + 58, y + 11)
-
   // ── TOP RIGHT INFO BOX ────────────────────────────────────
   const infoX = xOffset + m + 65
   const infoW = iW - 65
@@ -50,7 +42,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
   const infoRows = [
     { label: 'DUE DATE:', value: formatDate(job.due_date) || '' },
     { label: 'Date Received:', value: formatDate(job.created_at) },
-    { label: 'Quote No:', value: '' },
+    { label: 'Quote No:', value: job.job_number || job.linked_quote?.quote_number || '' },
     { label: 'Invoice No:', value: '' },
     { label: 'PO No:', value: '' },
   ]
@@ -78,7 +70,20 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
     infoY += rowH
   }
 
-  y += 26
+  y += 24
+
+  // ── ASSIGNED WORKER ──────────────────────────────────────
+  const workerName = job.assigned_worker || job.sales_rep || ''
+  doc.setFillColor(255, 255, 255)
+  doc.rect(xOffset + m, y, iW, 5, 'F')
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(0, 0, 0)
+  doc.text('Worker:', xOffset + m + 1, y + 3.5)
+  doc.setFont('helvetica', 'normal')
+  doc.text(workerName || '-', xOffset + m + 15, y + 3.5)
+
+  y += 6
 
   // ── DIVIDER ───────────────────────────────────────────────
   doc.setDrawColor(0, 0, 0)

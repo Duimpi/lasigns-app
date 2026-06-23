@@ -16,7 +16,7 @@ type ReportRow = {
   id: string
   quote_number?: string
   job_number?: string
-  record_type?: 'quote' | 'retail' | 'job_card'
+  record_type?: 'quote' | 'retail' | 'job_card' | 'walk_in'
   title?: string | null
   client_name?: string | null
   status?: string | null
@@ -47,6 +47,7 @@ type Summary = {
   outstanding: number
   averageSale: number
   completedJobCards: number
+  walkInIncome: number
 }
 
 function toDateInput(date: Date) {
@@ -102,10 +103,13 @@ function normalizeReportRow(row: any, source: 'quote' | 'job_card'): ReportRow {
   const parsedAmount = parsePaidAmount(notes)
   const total = numberValue(row.total)
   const explicitPaymentStatus = String(row.payment_status || '').toLowerCase()
+  const isWalkIn = source === 'job_card' && String(row.job_number || '').startsWith('WI-')
+  const isCompletedJob = source === 'job_card' && String(row.status || '').toLowerCase() === 'completed'
+  const isDeliveredWalkIn = isWalkIn && String(row.status || '').toLowerCase() === 'delivered'
   const paymentStatus = explicitPaymentStatus || (hasPaidNote
     ? parsedAmount > 0 && parsedAmount < total ? 'partial' : 'paid'
-    : 'unpaid')
-  const recordType = source === 'quote' ? 'quote' : row.is_retail ? 'retail' : 'job_card'
+    : (isCompletedJob || isDeliveredWalkIn) ? 'paid' : 'unpaid')
+  const recordType = source === 'quote' ? 'quote' : isWalkIn ? 'walk_in' : row.is_retail ? 'retail' : 'job_card'
 
   return {
     ...row,
@@ -114,7 +118,7 @@ function normalizeReportRow(row: any, source: 'quote' | 'job_card'): ReportRow {
     is_retail: recordType === 'retail',
     payment_status: paymentStatus,
     payment_method: row.payment_method || parsePaymentMethod(notes) || null,
-    amount_paid: numberValue(row.amount_paid) || (hasPaidNote ? parsedAmount : 0),
+    amount_paid: numberValue(row.amount_paid) || (hasPaidNote ? parsedAmount : paymentStatus === 'paid' ? total : 0),
     payment_date: row.payment_date || parsePaymentDate(notes) || (hasPaidNote ? row.updated_at : null) || null,
     completed_at: row.completed_at || row.date_completed || null,
   }
@@ -134,7 +138,7 @@ function isInRange(row: ReportRow, start: string, end: string) {
 function isCountable(row: ReportRow) {
   const status = String(row.status || '').toLowerCase()
   const notes = String(row.notes || '')
-  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && status === 'completed'
+  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && (status === 'completed' || row.record_type === 'walk_in')
 }
 
 function incomeFor(row: ReportRow) {
@@ -163,7 +167,7 @@ function downloadCsv(rows: ReportRow[], startDate: string, endDate: string) {
   const lines = rows.map(row => [
     row.quote_number || '',
     row.client_name || '',
-    row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote',
+    row.record_type === 'walk_in' ? 'Walk-in' : row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote',
     row.status || '',
     row.payment_status || '',
     row.payment_method || '',
@@ -233,7 +237,7 @@ function ReportsPageInner() {
   async function loadRowsDirectly() {
     const [quotesResult, jobsResult] = await Promise.all([
       supabase.from('quotes').select('*').eq('status', 'completed'),
-      supabase.from('job_cards').select('*').eq('status', 'completed').not('job_number', 'like', 'WI-%'),
+      supabase.from('job_cards').select('*').in('status', ['completed', 'delivered']),
     ])
 
     if (quotesResult.error) throw quotesResult.error
@@ -266,6 +270,7 @@ function ReportsPageInner() {
     const totalIncome = rows.reduce((sum, row) => sum + incomeFor(row), 0)
     const normalIncome = rows.filter(row => row.record_type === 'quote').reduce((sum, row) => sum + incomeFor(row), 0)
     const retailIncome = rows.filter(row => row.record_type === 'retail').reduce((sum, row) => sum + incomeFor(row), 0)
+    const walkInIncome = rows.filter(row => row.record_type === 'walk_in').reduce((sum, row) => sum + incomeFor(row), 0)
     const paidCount = rows.filter(row => String(row.payment_status || '').toLowerCase() === 'paid').length
     const partialCount = rows.filter(row => String(row.payment_status || '').toLowerCase() === 'partial').length
     const outstanding = rows.reduce((sum, row) => sum + Math.max(0, numberValue(row.total) - numberValue(row.amount_paid || (String(row.payment_status).toLowerCase() === 'paid' ? row.total : 0))), 0)
@@ -279,12 +284,13 @@ function ReportsPageInner() {
       outstanding,
       averageSale: rows.length ? totalIncome / rows.length : 0,
       completedJobCards: rows.filter(row => row.record_type === 'job_card').length,
+      walkInIncome,
     }
   }, [rows])
 
   const monthly = useMemo(() => groupSum(rows, row => (reportDate(row).slice(0, 7) || 'Unknown')), [rows])
   const byStatus = useMemo(() => groupSum(rows, row => row.status || 'Unknown'), [rows])
-  const retailVsNormal = useMemo(() => groupSum(rows, row => row.record_type === 'job_card' ? 'Job Cards' : row.is_retail ? 'Retail' : 'Quotes'), [rows])
+  const retailVsNormal = useMemo(() => groupSum(rows, row => row.record_type === 'walk_in' ? 'Walk-ins' : row.record_type === 'job_card' ? 'Job Cards' : row.is_retail ? 'Retail' : 'Quotes'), [rows])
   const topClients = useMemo(() => groupSum(rows, row => row.client_name || 'Unknown').slice(0, 8), [rows])
   const paymentMethods = useMemo(() => groupSum(rows.filter(row => row.payment_method), row => row.payment_method || 'Unknown'), [rows])
 
@@ -343,6 +349,7 @@ function ReportsPageInner() {
           <StatCard label="Total income" value={formatCurrency(summary.totalIncome)} />
           <StatCard label="Quote income" value={formatCurrency(summary.normalIncome)} />
           <StatCard label="Retail income" value={formatCurrency(summary.retailIncome)} />
+          <StatCard label="Walk-in income" value={formatCurrency(summary.walkInIncome)} />
           <StatCard label="VAT total" value={formatCurrency(summary.vatTotal)} />
           <StatCard label="Paid records" value={summary.paidCount} />
           <StatCard label="Partial payments" value={summary.partialCount} />
@@ -388,7 +395,7 @@ function ReportsPageInner() {
                     <tr key={row.id}>
                       <td className="font-mono text-accent">{row.quote_number || '-'}</td>
                       <td>{row.client_name || '-'}</td>
-                      <td>{row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote'}</td>
+                      <td>{row.record_type === 'walk_in' ? 'Walk-in' : row.record_type === 'job_card' ? 'Job Card' : row.is_retail ? 'Retail' : 'Quote'}</td>
                       <td>{row.status || '-'}</td>
                       <td>{row.payment_status || '-'}</td>
                       <td>{row.payment_method || '-'}</td>
