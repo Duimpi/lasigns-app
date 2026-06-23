@@ -25,6 +25,21 @@ const ACTIVE_STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'i
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const VAT_RATE = 15
+const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
+const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
+
+function stripCollectionTags(notes?: string | null) {
+  return String(notes || '')
+    .replace(COLLECTION_PENDING_TAG, '')
+    .replace(COLLECTION_COLLECTED_TAG, '')
+    .replace(/Collected on .+$/m, '')
+    .trim()
+}
+
+function withCollectionTag(notes: string | undefined, forCollection: boolean) {
+  const clean = stripCollectionTags(notes)
+  return [clean, forCollection ? COLLECTION_PENDING_TAG : ''].filter(Boolean).join('\n')
+}
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -209,7 +224,7 @@ function JobCardsPageInner() {
     reset({
       title: job.title,
       description: job.description || '',
-      notes: job.notes || '',
+      notes: stripCollectionTags(job.notes),
       client_id: job.client_id || undefined,
       client_name: job.client_name || '',
       status: job.status,
@@ -218,7 +233,7 @@ function JobCardsPageInner() {
       due_date: job.due_date || '',
       linked_quote_id: job.linked_quote_id || undefined,
       date_completed: job.date_completed || '',
-      for_collection: job.collection_status === 'pending',
+      for_collection: job.collection_status === 'pending' || String(job.notes || '').includes(COLLECTION_PENDING_TAG),
       items: job.items.length > 0
         ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => {
             const parts = (i.size || '').split('x')
@@ -257,7 +272,7 @@ function JobCardsPageInner() {
       const payload: Record<string, unknown> = {
         title: data.title,
         description: data.description || null,
-        notes: data.notes || null,
+        notes: withCollectionTag(data.notes, data.for_collection) || null,
         client_id: data.client_id || null,
         client_name: data.client_name || null,
         status: data.status,
@@ -274,7 +289,6 @@ function JobCardsPageInner() {
         total: sub + vat,
         created_by: profile?.id || null,
       }
-      if (data.for_collection) payload.collection_status = 'pending'
 
       let jobId: string
 
@@ -349,7 +363,6 @@ function JobCardsPageInner() {
       status: 'completed',
       date_completed: completedAt.slice(0, 10),
     }
-    if (job.collection_status === 'pending') completePayload.collection_status = 'pending'
     const { error } = await supabase.from('job_cards').update(completePayload).eq('id', job.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
     toast.success('Job card completed')

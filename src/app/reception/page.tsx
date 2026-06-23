@@ -14,6 +14,8 @@ import {
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
 type Tab = 'collection' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
+const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
+const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
 
 interface PayableItem {
   id: string
@@ -78,14 +80,14 @@ function ReceptionPageInner() {
       // Completed non-retail job cards waiting for or already collected
       const { data: collData } = await supabase
         .from('job_cards')
-        .select('id, job_number, title, client_name, total, status, collection_status, is_retail, created_at')
+        .select('id, job_number, title, client_name, total, status, collection_status, notes, is_retail, created_at')
         .eq('status', 'completed')
         .eq('is_retail', false)
         .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
 
-      const pending = (collData || []).filter((j: any) => j.collection_status === 'pending')
-      const collected = (collData || []).filter((j: any) => j.collection_status === 'collected')
+      const pending = (collData || []).filter((j: any) => j.collection_status === 'pending' || String(j.notes || '').includes(COLLECTION_PENDING_TAG))
+      const collected = (collData || []).filter((j: any) => j.collection_status === 'collected' || String(j.notes || '').includes(COLLECTION_COLLECTED_TAG))
       setCollectionItems(pending as CollectionItem[])
       setCollectedItems(collected as CollectionItem[])
 
@@ -135,9 +137,14 @@ function ReceptionPageInner() {
   }
 
   async function markCollected(item: CollectionItem) {
+    const currentNotes = String(item.notes || '')
+    const nextNotes = currentNotes.includes(COLLECTION_PENDING_TAG)
+      ? currentNotes.replace(COLLECTION_PENDING_TAG, COLLECTION_COLLECTED_TAG)
+      : [currentNotes, COLLECTION_COLLECTED_TAG].filter(Boolean).join('\n')
     const { error } = await supabase.from('job_cards').update({
       collection_status: 'collected',
       collected_at: new Date().toISOString(),
+      notes: `${nextNotes}\nCollected on ${new Date().toLocaleDateString()}`,
     }).eq('id', item.id)
 
     if (error) { toast.error(`Failed: ${error.message}`); return }
