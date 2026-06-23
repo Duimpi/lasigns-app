@@ -6,11 +6,12 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { BarChart3, Download, ShieldAlert } from 'lucide-react'
+import { BarChart3, Download, ShieldAlert, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { isSuperAdmin } from '@/lib/auth/superAdmin'
 
 type QuickFilter = 'this_month' | 'last_month' | 'this_year'
+const REPORT_REMOVED_TAG = '[LA_REPORT_REMOVED]'
 
 type ReportRow = {
   id: string
@@ -138,7 +139,7 @@ function isInRange(row: ReportRow, start: string, end: string) {
 function isCountable(row: ReportRow) {
   const status = String(row.status || '').toLowerCase()
   const notes = String(row.notes || '')
-  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && (status === 'completed' || row.record_type === 'walk_in')
+  return !row.deleted_at && !notes.startsWith('PAYMENT_REMOVED:') && !notes.includes(REPORT_REMOVED_TAG) && (status === 'completed' || row.record_type === 'walk_in')
 }
 
 function incomeFor(row: ReportRow) {
@@ -266,6 +267,20 @@ function ReportsPageInner() {
   }
   useEffect(() => { loadReport() }, [canView, startDate, endDate])
 
+  async function deleteReportRow(row: ReportRow) {
+    const number = row.quote_number || row.job_number || 'this record'
+    if (!confirm(`Remove ${number} from Reports?`)) return
+    const table = row.record_type === 'quote' ? 'quotes' : 'job_cards'
+    const currentNotes = String(row.notes || '')
+    const nextNotes = currentNotes.includes(REPORT_REMOVED_TAG)
+      ? currentNotes
+      : [currentNotes, REPORT_REMOVED_TAG].filter(Boolean).join('\n')
+    const { error } = await supabase.from(table).update({ notes: nextNotes }).eq('id', row.id)
+    if (error) { toast.error(`Delete failed: ${error.message}`); return }
+    toast.success('Removed from Reports')
+    loadReport()
+  }
+
   const summary = useMemo<Summary>(() => {
     const totalIncome = rows.reduce((sum, row) => sum + incomeFor(row), 0)
     const normalIncome = rows.filter(row => row.record_type === 'quote').reduce((sum, row) => sum + incomeFor(row), 0)
@@ -387,7 +402,7 @@ function ReportsPageInner() {
                 <thead>
                   <tr>
                     <th>Number</th><th>Client</th><th>Type</th><th>Status</th><th>Payment</th><th>Method</th>
-                    <th>Subtotal</th><th>VAT</th><th>Total</th><th>Amount paid</th><th>Date</th>
+                    <th>Subtotal</th><th>VAT</th><th>Total</th><th>Amount paid</th><th>Date</th><th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -404,6 +419,15 @@ function ReportsPageInner() {
                       <td>{formatCurrency(numberValue(row.total))}</td>
                       <td>{formatCurrency(incomeFor(row))}</td>
                       <td>{reportDate(row) ? formatDate(reportDate(row)) : '-'}</td>
+                      <td>
+                        <button
+                          onClick={() => deleteReportRow(row)}
+                          className="btn-sm px-2 py-1 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg border border-red-500/30 flex items-center gap-1"
+                          title="Remove from Reports"
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

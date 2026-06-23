@@ -166,6 +166,20 @@ function ReceptionPageInner() {
     toast.success(`✅ ${item.client_name} collected their order`)
     loadData()
   }
+  async function deleteCollectedItem(item: CollectionItem) {
+    if (!confirm(`Remove collected history for ${item.client_name || 'this client'}?`)) return
+    const nextNotes = String(item.notes || '')
+      .replace(COLLECTION_COLLECTED_TAG, '')
+      .replace(COLLECTION_PENDING_TAG, '')
+      .replace(/Collected on .+$/m, '')
+      .trim()
+    const { error } = await supabase.from('job_cards').update({
+      notes: nextNotes || null,
+    }).eq('id', item.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success('Collected history removed')
+    loadData()
+  }
 
   async function recordPayment() {
     if (!payingItem || !payAmount) return
@@ -432,6 +446,14 @@ function ReceptionPageInner() {
                         <p className="text-sm text-text-muted mt-0.5 truncate">{item.title}</p>
                         <p className="text-sm font-semibold text-text-primary mt-1">{formatCurrency(item.total)}</p>
                       </div>
+                      <button
+                        onClick={() => deleteCollectedItem(item)}
+                        className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors"
+                        title="Remove collected history"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
                     </div>
                   </div>
                 ))}
