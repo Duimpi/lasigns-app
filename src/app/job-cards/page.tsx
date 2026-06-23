@@ -268,13 +268,13 @@ function JobCardsPageInner() {
         is_retail: false,
         sales_rep: null,
         date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
-        collection_status: data.for_collection ? 'pending' : null,
         vat_rate: VAT_RATE,
         subtotal: sub,
         vat_amount: vat,
         total: sub + vat,
         created_by: profile?.id || null,
       }
+      if (data.for_collection) payload.collection_status = 'pending'
 
       let jobId: string
 
@@ -345,11 +345,12 @@ function JobCardsPageInner() {
   async function handleComplete(job: JobWithItems) {
     if (!confirm(`Mark ${job.job_number} as complete?`)) return
     const completedAt = new Date().toISOString()
-    const { error } = await supabase.from('job_cards').update({
+    const completePayload: Record<string, unknown> = {
       status: 'completed',
       date_completed: completedAt.slice(0, 10),
-      collection_status: job.collection_status === 'pending' ? 'pending' : null,
-    }).eq('id', job.id).eq('is_retail', false)
+    }
+    if (job.collection_status === 'pending') completePayload.collection_status = 'pending'
+    const { error } = await supabase.from('job_cards').update(completePayload).eq('id', job.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
     toast.success('Job card completed')
     loadJobs()

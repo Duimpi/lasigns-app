@@ -32,6 +32,14 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number) {
     doc.text('LA Signs', xOffset + m + 2, y + 12)
   }
 
+  // ── ASSIGNED WORKER ──────────────────────────────────────
+  const workerName = job.assigned_worker || job.sales_rep || ''
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(0, 0, 0)
+  doc.text('Worker:', xOffset + m + 44, y + 11)
+  doc.text(workerName || '-', xOffset + m + 58, y + 11)
+
   // ── TOP RIGHT INFO BOX ────────────────────────────────────
   const infoX = xOffset + m + 65
   const infoW = iW - 65
