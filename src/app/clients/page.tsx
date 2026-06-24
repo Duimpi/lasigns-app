@@ -66,8 +66,8 @@ export default function ClientsPage() {
     },
   })
 
-  const { fields: phoneFields, append: addPhone, remove: removePhone } = useFieldArray({ control, name: 'phones' })
-  const { fields: emailFields, append: addEmail, remove: removeEmail } = useFieldArray({ control, name: 'emails' })
+  const { fields: phoneFields, append: addPhone, remove: removePhone, replace: replacePhones } = useFieldArray({ control, name: 'phones' })
+  const { fields: emailFields, append: addEmail, remove: removeEmail, replace: replaceEmails } = useFieldArray({ control, name: 'emails' })
 
   useEffect(() => { loadClients() }, [])
 
@@ -139,29 +139,37 @@ export default function ClientsPage() {
 
   function openCreate() {
     setEditingClient(null)
+    const phones = [{ phone: '', label: '', is_primary: true }]
+    const emails = [{ email: '', label: '', is_primary: true }]
     reset({
       name: '', company: '', address: '', vat_number: '', notes: '',
-      phones: [{ phone: '', label: '', is_primary: true }],
-      emails: [{ email: '', label: '', is_primary: true }],
+      phones,
+      emails,
     })
+    replacePhones(phones)
+    replaceEmails(emails)
     setIsFormOpen(true)
   }
 
   function openEdit(client: ClientWithContact) {
     setEditingClient(client)
+    const phones = client.phones.length > 0
+      ? client.phones.map(p => ({ phone: p.phone || '', label: p.label || '', is_primary: p.is_primary }))
+      : [{ phone: '', label: '', is_primary: true }]
+    const emails = client.emails.length > 0
+      ? client.emails.map(e => ({ email: e.email || '', label: e.label || '', is_primary: e.is_primary }))
+      : [{ email: '', label: '', is_primary: true }]
     reset({
       name: client.name,
       company: client.company || '',
       address: client.address || '',
       vat_number: client.vat_number || '',
       notes: client.notes || '',
-      phones: client.phones.length > 0
-        ? client.phones.map(p => ({ phone: p.phone, label: p.label || '', is_primary: p.is_primary }))
-        : [{ phone: '', label: '', is_primary: true }],
-      emails: client.emails.length > 0
-        ? client.emails.map(e => ({ email: e.email, label: e.label || '', is_primary: e.is_primary }))
-        : [{ email: '', label: '', is_primary: true }],
+      phones,
+      emails,
     })
+    replacePhones(phones)
+    replaceEmails(emails)
     setIsFormOpen(true)
   }
 
@@ -188,8 +196,10 @@ export default function ClientsPage() {
         clientId = editingClient.id
 
         // Delete and re-insert phones/emails
-        await supabase.from('client_phones').delete().eq('client_id', clientId)
-        await supabase.from('client_emails').delete().eq('client_id', clientId)
+        const { error: phoneDeleteError } = await supabase.from('client_phones').delete().eq('client_id', clientId)
+        if (phoneDeleteError) throw phoneDeleteError
+        const { error: emailDeleteError } = await supabase.from('client_emails').delete().eq('client_id', clientId)
+        if (emailDeleteError) throw emailDeleteError
       } else {
         const { data: created, error } = await supabase
           .from('clients')
@@ -203,17 +213,19 @@ export default function ClientsPage() {
       // Insert phones
       const validPhones = data.phones.filter(p => p.phone.trim())
       if (validPhones.length > 0) {
-        await supabase.from('client_phones').insert(
+        const { error: phoneInsertError } = await supabase.from('client_phones').insert(
           validPhones.map(p => ({ client_id: clientId, phone: p.phone.trim(), label: p.label || null, is_primary: p.is_primary }))
         )
+        if (phoneInsertError) throw phoneInsertError
       }
 
       // Insert emails
       const validEmails = data.emails.filter(e => e.email.trim())
       if (validEmails.length > 0) {
-        await supabase.from('client_emails').insert(
+        const { error: emailInsertError } = await supabase.from('client_emails').insert(
           validEmails.map(e => ({ client_id: clientId, email: e.email.trim(), label: e.label || null, is_primary: e.is_primary }))
         )
+        if (emailInsertError) throw emailInsertError
       }
 
       // Activity log
