@@ -537,21 +537,21 @@ export default function ClientsPage() {
             </div>
             <div className="space-y-2">
               {phoneFields.map((field, i) => (
-                <div key={field.id} className="flex gap-2">
+                <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                   <input
                     {...register(`phones.${i}.phone`)}
                     defaultValue={(field as any).phone || ''}
-                    className="input flex-1"
+                    className={phoneFields.length > 1 ? 'input col-span-8' : 'input col-span-9'}
                     placeholder="+264 81 000 0000"
                   />
                   <input
                     {...register(`phones.${i}.label`)}
                     defaultValue={(field as any).label || ''}
-                    className="input w-28"
+                    className="input col-span-3"
                     placeholder="Mobile"
                   />
                   {phoneFields.length > 1 && (
-                    <button type="button" onClick={() => removePhone(i)} className="btn-icon text-red-400/50 hover:text-red-400">
+                    <button type="button" onClick={() => removePhone(i)} className="btn-icon text-red-400/50 hover:text-red-400 col-span-1">
                       <X className="w-4 h-4" />
                     </button>
                   )}
@@ -574,22 +574,22 @@ export default function ClientsPage() {
             </div>
             <div className="space-y-2">
               {emailFields.map((field, i) => (
-                <div key={field.id} className="flex gap-2">
+                <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
                   <input
                     {...register(`emails.${i}.email`)}
                     defaultValue={(field as any).email || ''}
                     type="email"
-                    className="input flex-1"
+                    className={emailFields.length > 1 ? 'input col-span-8' : 'input col-span-9'}
                     placeholder="john@example.com"
                   />
                   <input
                     {...register(`emails.${i}.label`)}
                     defaultValue={(field as any).label || ''}
-                    className="input w-28"
+                    className="input col-span-3"
                     placeholder="Work"
                   />
                   {emailFields.length > 1 && (
-                    <button type="button" onClick={() => removeEmail(i)} className="btn-icon text-red-400/50 hover:text-red-400">
+                    <button type="button" onClick={() => removeEmail(i)} className="btn-icon text-red-400/50 hover:text-red-400 col-span-1">
                       <X className="w-4 h-4" />
                     </button>
                   )}
