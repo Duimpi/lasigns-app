@@ -756,50 +756,6 @@ function JobCardsPageInner() {
                 </div>
 
                 <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
-                <div className="space-y-3">
-                  <label className="label">Reception</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
-                      <input {...register('fulfillment_method')} type="radio" value="collection" className="accent-accent" onChange={() => setValue('for_collection', true)} />
-                      Client will collect this job
-                    </label>
-                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
-                      <input {...register('fulfillment_method')} type="radio" value="delivery" className="accent-accent" onChange={() => setValue('for_collection', false)} />
-                      Delivery
-                    </label>
-                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
-                      <input {...register('fulfillment_method')} type="radio" value="courier" className="accent-accent" onChange={() => setValue('for_collection', false)} />
-                      Courier
-                    </label>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm text-text-muted">
-                    <input {...register('fulfillment_method')} type="radio" value="none" className="accent-accent" onChange={() => setValue('for_collection', false)} />
-                    No reception action
-                  </label>
-                  {fulfillmentMethod === 'delivery' && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div><label className="label">Delivery Client Name</label><input {...register('delivery_name')} className="input" /></div>
-                      <div><label className="label">Delivery Number</label><input {...register('delivery_number')} className="input" /></div>
-                      <div><label className="label">Delivery Address</label><input {...register('delivery_address')} className="input" /></div>
-                    </div>
-                  )}
-                  {fulfillmentMethod === 'courier' && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div><label className="label">Courier Company</label><input {...register('courier_company')} className="input" /></div>
-                        <div><label className="label">Address</label><input {...register('courier_address')} className="input" /></div>
-                        <div><label className="label">Contact Person</label><input {...register('courier_contact_person')} className="input" /></div>
-                      </div>
-                      <div>
-                        <label className="label">Courier Payment</label>
-                        <select {...register('courier_payment')} className="input max-w-xs">
-                          <option value="pay_on_delivery">Pay on Delivery</option>
-                          <option value="we_pay">We pay</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
                 <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
               </div>

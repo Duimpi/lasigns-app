@@ -30,6 +30,20 @@ const ACTIVE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_product
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const QUOTE_WORKER_RE = /\[LA_WORKER:([^\]]+)\]/i
 const QUOTE_CLIENT_NUMBER_RE = /\[LA_CLIENT_NUMBER:([^\]]+)\]/i
+const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
+const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
+const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
+const DELIVERY_DELIVERED_TAG = '[LA_DELIVERY_DELIVERED]'
+const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
+const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
+const FULFILLMENT_TAGS = [
+  COLLECTION_PENDING_TAG,
+  COLLECTION_COLLECTED_TAG,
+  DELIVERY_PENDING_TAG,
+  DELIVERY_DELIVERED_TAG,
+  COURIER_PENDING_TAG,
+  COURIER_COURIERED_TAG,
+]
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -52,6 +66,14 @@ const quoteSchema = z.object({
   valid_until: z.string().optional(),
   assigned_worker: z.string().optional().default(''),
   discount: z.coerce.number().default(0),
+  fulfillment_method: z.enum(['none', 'collection', 'delivery', 'courier']).default('none'),
+  delivery_name: z.string().optional().default(''),
+  delivery_number: z.string().optional().default(''),
+  delivery_address: z.string().optional().default(''),
+  courier_company: z.string().optional().default(''),
+  courier_address: z.string().optional().default(''),
+  courier_contact_person: z.string().optional().default(''),
+  courier_payment: z.enum(['pay_on_delivery', 'we_pay']).default('pay_on_delivery'),
   items: z.array(lineItemSchema),
 })
 
@@ -77,8 +99,77 @@ function cleanClientNumber(phone?: string | null) {
   return normalizeClientPhone(phone)
 }
 
+function tagValue(notes: string | null | undefined, key: string) {
+  const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
+  if (!match?.[1]) return ''
+  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+}
+
+function makeTag(key: string, value?: string | null) {
+  const clean = String(value || '').trim()
+  return clean ? '[LA_' + key + ':' + encodeURIComponent(clean) + ']' : ''
+}
+
+function stripFulfillmentTags(notes?: string | null) {
+  let clean = String(notes || '')
+  FULFILLMENT_TAGS.forEach(tag => { clean = clean.replaceAll(tag, '') })
+  clean = clean
+    .replace(/\[LA_DELIVERY_(NAME|NUMBER|ADDRESS):[^\]]*\]/gi, '')
+    .replace(/\[LA_COURIER_(COMPANY|ADDRESS|CONTACT|PAYMENT):[^\]]*\]/gi, '')
+    .replace(/(Collected|Delivered|Couriered) on .+$/gm, '')
+  return clean.trim()
+}
+
+function getFulfillmentDetails(notes?: string | null) {
+  const text = String(notes || '')
+  const method = text.includes(DELIVERY_PENDING_TAG) || text.includes(DELIVERY_DELIVERED_TAG)
+    ? 'delivery'
+    : text.includes(COURIER_PENDING_TAG) || text.includes(COURIER_COURIERED_TAG)
+      ? 'courier'
+      : text.includes(COLLECTION_PENDING_TAG) || text.includes(COLLECTION_COLLECTED_TAG)
+        ? 'collection'
+        : 'none'
+
+  return {
+    method,
+    delivery_name: tagValue(text, 'DELIVERY_NAME'),
+    delivery_number: tagValue(text, 'DELIVERY_NUMBER'),
+    delivery_address: tagValue(text, 'DELIVERY_ADDRESS'),
+    courier_company: tagValue(text, 'COURIER_COMPANY'),
+    courier_address: tagValue(text, 'COURIER_ADDRESS'),
+    courier_contact_person: tagValue(text, 'COURIER_CONTACT'),
+    courier_payment: tagValue(text, 'COURIER_PAYMENT') || 'pay_on_delivery',
+  }
+}
+
+function fulfillmentTagsForQuote(data: QuoteFormData) {
+  const method = data.fulfillment_method || 'none'
+  const tags: string[] = []
+
+  if (method === 'collection') tags.push(COLLECTION_PENDING_TAG)
+  if (method === 'delivery') {
+    tags.push(
+      DELIVERY_PENDING_TAG,
+      makeTag('DELIVERY_NAME', data.delivery_name),
+      makeTag('DELIVERY_NUMBER', data.delivery_number),
+      makeTag('DELIVERY_ADDRESS', data.delivery_address),
+    )
+  }
+  if (method === 'courier') {
+    tags.push(
+      COURIER_PENDING_TAG,
+      makeTag('COURIER_COMPANY', data.courier_company),
+      makeTag('COURIER_ADDRESS', data.courier_address),
+      makeTag('COURIER_CONTACT', data.courier_contact_person),
+      makeTag('COURIER_PAYMENT', data.courier_payment),
+    )
+  }
+
+  return tags.filter(Boolean)
+}
+
 function stripQuoteHiddenTags(notes?: string | null) {
-  return String(notes || '')
+  return stripFulfillmentTags(notes)
     .replace(QUOTE_WORKER_RE, '')
     .replace(QUOTE_CLIENT_NUMBER_RE, '')
     .replace(/\n{3,}/g, '\n\n')
@@ -89,13 +180,14 @@ function stripQuoteWorkerTag(notes?: string | null) {
   return stripQuoteHiddenTags(notes)
 }
 
-function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null) {
+function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null, data?: QuoteFormData) {
   const cleanNotes = stripQuoteHiddenTags(notes)
   const cleanNumber = cleanClientNumber(clientNumber)
   return [
     cleanNotes,
     worker ? '[LA_WORKER:' + worker + ']' : '',
     cleanNumber ? '[LA_CLIENT_NUMBER:' + cleanNumber + ']' : '',
+    ...(data ? fulfillmentTagsForQuote(data) : []),
   ].filter(Boolean).join('\n')
 }
 
@@ -145,6 +237,8 @@ function QuotesPageInner() {
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
+      fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -153,6 +247,7 @@ function QuotesPageInner() {
   const watchItems = watch('items')
   const watchVatRate = watch('vat_rate')
   const watchDiscount = watch('discount')
+  const fulfillmentMethod = watch('fulfillment_method')
 
   const subtotal = watchItems?.reduce((sum, item) => {
     const w = parseFloat(item.width || '0') / 1000
@@ -230,6 +325,8 @@ function QuotesPageInner() {
     reset({
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
+      fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -238,6 +335,7 @@ function QuotesPageInner() {
 
   function openEdit(quote: QuoteWithItems) {
     setEditingQuote(quote)
+    const fulfillment = getFulfillmentDetails(quote.notes)
     reset({
       client_id: quote.client_id || undefined,
       client_name: quote.client_name || '',
@@ -250,6 +348,14 @@ function QuotesPageInner() {
       assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes),
       client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
       discount: (quote as any).discount || 0,
+      fulfillment_method: fulfillment.method as QuoteFormData['fulfillment_method'],
+      delivery_name: fulfillment.delivery_name,
+      delivery_number: fulfillment.delivery_number,
+      delivery_address: fulfillment.delivery_address,
+      courier_company: fulfillment.courier_company,
+      courier_address: fulfillment.courier_address,
+      courier_contact_person: fulfillment.courier_contact_person,
+      courier_payment: fulfillment.courier_payment as QuoteFormData['courier_payment'],
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
             description: i.description,
@@ -305,7 +411,7 @@ function QuotesPageInner() {
         
         vat_amount: vat,
         total: discountedSub + vat,
-        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, cleanClientNumber(data.client_phone)) || null,
+        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, cleanClientNumber(data.client_phone), data) || null,
         valid_until: data.valid_until || null,
         is_retail: false,
         created_by: null,
@@ -671,6 +777,51 @@ function QuotesPageInner() {
                 {WORKERS.map(w => <option key={w} value={w}>{w}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <label className="label">Reception</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                <input {...register('fulfillment_method')} type="radio" value="collection" className="accent-accent" />
+                Client will collect this job
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                <input {...register('fulfillment_method')} type="radio" value="delivery" className="accent-accent" />
+                Delivery
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                <input {...register('fulfillment_method')} type="radio" value="courier" className="accent-accent" />
+                Courier
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-text-muted">
+              <input {...register('fulfillment_method')} type="radio" value="none" className="accent-accent" />
+              No reception action
+            </label>
+            {fulfillmentMethod === 'delivery' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div><label className="label">Delivery Client Name</label><input {...register('delivery_name')} className="input" /></div>
+                <div><label className="label">Delivery Number</label><input {...register('delivery_number')} className="input" /></div>
+                <div><label className="label">Delivery Address</label><input {...register('delivery_address')} className="input" /></div>
+              </div>
+            )}
+            {fulfillmentMethod === 'courier' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div><label className="label">Courier Company</label><input {...register('courier_company')} className="input" /></div>
+                  <div><label className="label">Address</label><input {...register('courier_address')} className="input" /></div>
+                  <div><label className="label">Contact Person</label><input {...register('courier_contact_person')} className="input" /></div>
+                </div>
+                <div>
+                  <label className="label">Courier Payment</label>
+                  <select {...register('courier_payment')} className="input max-w-xs">
+                    <option value="pay_on_delivery">Pay on Delivery</option>
+                    <option value="we_pay">We pay</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Line items */}

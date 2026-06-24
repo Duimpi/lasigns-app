@@ -44,6 +44,7 @@ interface CollectionItem {
   collection_status?: string | null
   is_retail: boolean
   created_at: string
+  source_table?: 'quotes' | 'job_cards'
 }
 
 function ReceptionPageInner() {
@@ -88,14 +89,25 @@ function ReceptionPageInner() {
   async function loadData() {
     setIsLoading(true)
     try {
-      // Completed non-retail job cards waiting for or already collected
-      const { data: collData } = await supabase
-        .from('job_cards')
-        .select('id, job_number, title, client_name, total, status, notes, is_retail, created_at')
+      // Completed quotes waiting for collection, delivery, or courier.
+      const { data: quoteFulfillmentData } = await supabase
+        .from('quotes')
+        .select('id, quote_number, client_name, total, status, notes, is_retail, created_at')
         .eq('status', 'completed')
         .eq('is_retail', false)
-        .not('job_number', 'like', 'WI-%')
         .order('created_at', { ascending: false })
+      const collData = (quoteFulfillmentData || []).map((q: any) => ({
+        id: q.id,
+        job_number: q.quote_number,
+        title: `Quote ${q.quote_number}`,
+        client_name: q.client_name,
+        total: q.total,
+        status: q.status,
+        notes: q.notes,
+        is_retail: q.is_retail,
+        created_at: q.created_at,
+        source_table: 'quotes' as const,
+      }))
 
       const pending = (collData || []).filter((j: any) => {
         const notes = String(j.notes || '')
@@ -169,7 +181,8 @@ function ReceptionPageInner() {
     const nextNotes = currentNotes.includes(COLLECTION_PENDING_TAG)
       ? currentNotes.replace(COLLECTION_PENDING_TAG, COLLECTION_COLLECTED_TAG)
       : [currentNotes, COLLECTION_COLLECTED_TAG].filter(Boolean).join('\n')
-    const { error } = await supabase.from('job_cards').update({
+    const table = item.source_table || 'job_cards'
+    const { error } = await supabase.from(table).update({
       notes: `${nextNotes}\nCollected on ${new Date().toLocaleDateString()}`,
     }).eq('id', item.id)
 
@@ -183,7 +196,7 @@ function ReceptionPageInner() {
         type: 'job_collected',
         title: '📦 Job Collected',
         message: `${item.client_name} collected ${item.job_number} — ${item.title}`,
-        entity_type: 'job_card', entity_id: item.id,
+        entity_type: table === 'quotes' ? 'quote' : 'job_card', entity_id: item.id,
       })))
     }
 
@@ -201,7 +214,7 @@ function ReceptionPageInner() {
     const nextNotes = currentNotes.includes(pendingTag)
       ? currentNotes.replace(pendingTag, doneTag)
       : [currentNotes, doneTag].filter(Boolean).join('\n')
-    const { error } = await supabase.from('job_cards').update({
+    const { error } = await supabase.from(item.source_table || 'job_cards').update({
       notes: nextNotes + '\n' + label + ' on ' + new Date().toLocaleDateString(),
     }).eq('id', item.id)
     if (error) { toast.error(`Failed: ${error.message}`); return }
@@ -218,7 +231,7 @@ function ReceptionPageInner() {
       .filter(line => !line.startsWith(doneLabel + ' on '))
       .join('\n')
       .trim()
-    const { error } = await supabase.from('job_cards').update({ notes: nextNotes || null }).eq('id', item.id)
+    const { error } = await supabase.from(item.source_table || 'job_cards').update({ notes: nextNotes || null }).eq('id', item.id)
     if (error) { toast.error(`Failed: ${error.message}`); return }
     toast.success(doneLabel + ' history removed')
     loadData()
@@ -231,7 +244,7 @@ function ReceptionPageInner() {
       .replace(COLLECTION_PENDING_TAG, '')
       .replace(/Collected on .+$/m, '')
       .trim()
-    const { error } = await supabase.from('job_cards').update({
+    const { error } = await supabase.from(item.source_table || 'job_cards').update({
       notes: nextNotes || null,
     }).eq('id', item.id)
     if (error) { toast.error(`Failed: ${error.message}`); return }
