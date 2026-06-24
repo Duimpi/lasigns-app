@@ -18,7 +18,7 @@ type JobCardPrintOptions = {
 }
 
 const JOB_CARD_ROWS_PER_PAGE = 18
-const QUOTE_ROWS_PER_PAGE = 12
+const QUOTE_ROWS_PER_PAGE = 17
 
 function chunkJobItems<T>(items: T[] = [], size = JOB_CARD_ROWS_PER_PAGE): T[][] {
   if (items.length === 0) return [[]]
@@ -302,7 +302,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     }
     doc.setFontSize(6.5)
     doc.setFont('helvetica', 'bold')
-    doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1.5)
+    doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1)
     // Value column
     doc.line(totalsX + 22, bottomY, totalsX + 22, bottomY + bottomH)
   }
@@ -619,7 +619,7 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.line(xOffset + m, y, xOffset + m + iW, y)
 
   const bottomY = y
-  const bottomH = 36
+  const bottomH = 21
   const totalsX = xOffset + m + iW - 48
   const totalsW = 48
 
@@ -628,9 +628,9 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.text('Notes:', xOffset + m + 1, bottomY + 5)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  const notesLines = isLastPage && quote.notes ? doc.splitTextToSize(quote.notes, totalsX - (xOffset + m) - 4).slice(0, 3) : []
-  if (notesLines.length) doc.text(notesLines, xOffset + m + 1, bottomY + 10)
-  else if (!isLastPage) doc.text('Continued on next page', xOffset + m + 1, bottomY + 10)
+  const notesLines = isLastPage && quote.notes ? doc.splitTextToSize(quote.notes, totalsX - (xOffset + m) - 4).slice(0, 2) : []
+  if (notesLines.length) doc.text(notesLines, xOffset + m + 1, bottomY + 9)
+  else if (!isLastPage) doc.text('Continued on next page', xOffset + m + 1, bottomY + 9)
 
   doc.setDrawColor(0, 0, 0)
   doc.setLineWidth(0.3)
@@ -654,7 +654,7 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
     doc.setFont('helvetica', 'bold')
     doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1.5)
     doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
-    doc.text(totalRows[i].value, totalsX + totalsW - 1, ty + tRowH / 2 + 1.5, { align: 'right' })
+    doc.text(totalRows[i].value, totalsX + totalsW - 1, ty + tRowH / 2 + 1, { align: 'right' })
   }
 
   y = bottomY + bottomH

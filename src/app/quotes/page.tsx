@@ -72,6 +72,17 @@ function getQuoteClientNumber(notes?: string | null) {
   return String(notes || '').match(QUOTE_CLIENT_NUMBER_RE)?.[1]?.trim() || ''
 }
 
+function cleanClientNumber(phone?: string | null) {
+  let value = String(phone || '').trim()
+  if (!value) return ''
+  value = value.replace(/[^\d+]/g, '')
+  value = value.replace(/^\++/, '+')
+  if (value.startsWith('+264264')) return '+264' + value.slice(7)
+  if (value.startsWith('264264')) return '+264' + value.slice(6)
+  if (value.startsWith('264') && !value.startsWith('+264')) return '+' + value
+  return value
+}
+
 function stripQuoteHiddenTags(notes?: string | null) {
   return String(notes || '')
     .replace(QUOTE_WORKER_RE, '')
@@ -86,10 +97,11 @@ function stripQuoteWorkerTag(notes?: string | null) {
 
 function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null) {
   const cleanNotes = stripQuoteHiddenTags(notes)
+  const cleanNumber = cleanClientNumber(clientNumber)
   return [
     cleanNotes,
     worker ? '[LA_WORKER:' + worker + ']' : '',
-    clientNumber ? '[LA_CLIENT_NUMBER:' + clientNumber + ']' : '',
+    cleanNumber ? '[LA_CLIENT_NUMBER:' + cleanNumber + ']' : '',
   ].filter(Boolean).join('\n')
 }
 
@@ -102,7 +114,7 @@ function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
     ...quote,
     notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
-    client_phone: (quote as any).client_phone || getQuoteClientNumber(quote.notes),
+    client_phone: cleanClientNumber((quote as any).client_phone || getQuoteClientNumber(quote.notes)),
   }
 }
 
@@ -111,7 +123,7 @@ function quoteForPrint(quote: QuoteWithItems) {
     ...quote,
     notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
-    client_phone: quote.client_phone || getQuoteClientNumber(quote.notes),
+    client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
   }
 }
 
@@ -242,7 +254,7 @@ function QuotesPageInner() {
       notes: stripQuoteWorkerTag(quote.notes),
       valid_until: quote.valid_until || '',
       assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes),
-      client_phone: quote.client_phone || getQuoteClientNumber(quote.notes),
+      client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
       discount: (quote as any).discount || 0,
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
@@ -291,7 +303,7 @@ function QuotesPageInner() {
         
         vat_amount: vat,
         total: discountedSub + vat,
-        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, data.client_phone) || null,
+        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, cleanClientNumber(data.client_phone)) || null,
         valid_until: data.valid_until || null,
         is_retail: false,
         created_by: null,
@@ -609,7 +621,7 @@ function QuotesPageInner() {
                           const { data: ed } = await supabase.from('client_emails').select('email').eq('client_id', c.id).limit(1).single()
                           if (ed?.email) setValue('client_email', ed.email)
                           const { data: pd } = await supabase.from('client_phones').select('phone').eq('client_id', c.id).limit(1).single()
-                          if (pd?.phone) setValue('client_phone', pd.phone)
+                          if (pd?.phone) setValue('client_phone', cleanClientNumber(pd.phone))
                         }}>
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
@@ -625,7 +637,7 @@ function QuotesPageInner() {
               </div>
               <div>
                 <label className="label">Client Number</label>
-                <input {...register('client_phone')} className="input" placeholder="081 234 5678" />
+                <input {...register('client_phone', { setValueAs: cleanClientNumber })} className="input" placeholder="081 234 5678" />
               </div>
             </div>
             <div>
