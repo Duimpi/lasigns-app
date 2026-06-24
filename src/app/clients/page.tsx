@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { clientMatchesSearch, formatPhoneDisplay } from '@/lib/utils/phone'
 import { parseImportFile, detectDuplicates } from '@/lib/utils/import'
-import { formatDate, debounce } from '@/lib/utils'
+import { formatDate, formatCurrency, debounce } from '@/lib/utils'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -47,7 +47,9 @@ export default function ClientsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [historyClient, setHistoryClient] = useState<Client | null>(null)
   const [clientJobs, setClientJobs] = useState<any[]>([])
+  const [clientRetailJobs, setClientRetailJobs] = useState<any[]>([])
   const [clientQuotes, setClientQuotes] = useState<any[]>([])
+  const [clientPayments, setClientPayments] = useState<any[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<ClientWithContact | null>(null)
@@ -105,14 +107,33 @@ export default function ClientsPage() {
   async function loadClientHistory(client: Client) {
     setHistoryClient(client)
     setIsLoadingHistory(true)
-    const [{ data: jobs }, { data: quotes }] = await Promise.all([
-      supabase.from('job_cards').select('id, job_number, title, status, total, created_at')
-        .eq('client_id', client.id).order('created_at', { ascending: false }).limit(20),
-      supabase.from('quotes').select('id, quote_number, status, total, created_at')
+    const [{ data: jobs }, { data: retailJobs }, { data: quotes }] = await Promise.all([
+      supabase.from('job_cards').select('id, job_number, title, status, total, amount_paid, payment_status, payment_method, payment_date, notes, created_at')
+        .eq('client_id', client.id).eq('is_retail', false).order('created_at', { ascending: false }).limit(25),
+      supabase.from('job_cards').select('id, job_number, title, status, total, amount_paid, payment_status, payment_method, payment_date, notes, created_at')
+        .eq('client_id', client.id).eq('is_retail', true).order('created_at', { ascending: false }).limit(25),
+      supabase.from('quotes').select('id, quote_number, status, total, amount_paid, payment_status, payment_method, payment_date, notes, created_at')
         .eq('client_id', client.id).order('created_at', { ascending: false }).limit(20),
     ])
-    setClientJobs(jobs || [])
-    setClientQuotes(quotes || [])
+    const normalJobs = jobs || []
+    const retail = retailJobs || []
+    const quoteRows = quotes || []
+    setClientJobs(normalJobs)
+    setClientRetailJobs(retail)
+    setClientQuotes(quoteRows)
+    setClientPayments(
+      [
+        ...quoteRows.map((q: any) => ({ ...q, type: 'Quote', number: q.quote_number })),
+        ...normalJobs.map((j: any) => ({ ...j, type: 'Job Card', number: j.job_number })),
+        ...retail.map((j: any) => ({ ...j, type: 'Retail', number: j.job_number })),
+      ]
+        .filter((item: any) => {
+          const status = String(item.payment_status || '').toLowerCase()
+          const notes = String(item.notes || '')
+          return status === 'paid' || status === 'partial' || notes.startsWith('PAID:')
+        })
+        .sort((a: any, b: any) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime())
+    )
     setIsLoadingHistory(false)
   }
 
@@ -197,6 +218,7 @@ export default function ClientsPage() {
       setValue(`emails.${index}.is_primary`, email.is_primary)
     })
     setIsFormOpen(true)
+    loadClientHistory(freshClient)
   }
 
   async function onSubmit(data: ClientFormData) {
@@ -495,8 +517,8 @@ export default function ClientsPage() {
       <Modal
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
-        title={editingClient ? `Edit — ${editingClient.name}` : 'Add New Client'}
-        size="lg"
+        title={editingClient ? `Client Profile - ${editingClient.name}` : 'Add New Client'}
+        size="xl"
         preventOutsideClose={true}
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -603,6 +625,93 @@ export default function ClientsPage() {
             <textarea {...register('notes')} className="input min-h-[80px] resize-none" placeholder="Any additional notes..." />
           </div>
 
+          {editingClient && (
+            <div className="border-t border-border pt-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">Client Activity</p>
+                  <p className="text-sm text-text-secondary">Quotes, job cards, retail work and payments for this client.</p>
+                </div>
+                {isLoadingHistory && <span className="text-xs text-text-muted">Loading...</span>}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted">Quotes</p>
+                  <p className="text-lg font-bold text-text-primary">{clientQuotes.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted">Job Cards</p>
+                  <p className="text-lg font-bold text-text-primary">{clientJobs.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted">Retail</p>
+                  <p className="text-lg font-bold text-text-primary">{clientRetailJobs.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted">Payments</p>
+                  <p className="text-lg font-bold text-text-primary">{clientPayments.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted">Paid Total</p>
+                  <p className="text-lg font-bold text-emerald-400">
+                    {formatCurrency(clientPayments.reduce((sum, item) => sum + Number(item.amount_paid || item.total || 0), 0))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <HistoryList
+                  title="Quotes"
+                  empty="No quotes yet"
+                  items={clientQuotes.map((q: any) => ({
+                    id: q.id,
+                    number: q.quote_number,
+                    label: q.status,
+                    amount: q.total,
+                    date: q.created_at,
+                  }))}
+                />
+                <HistoryList
+                  title="Job Cards"
+                  empty="No job cards yet"
+                  items={clientJobs.map((j: any) => ({
+                    id: j.id,
+                    number: j.job_number,
+                    label: j.status,
+                    detail: j.title,
+                    amount: j.total,
+                    date: j.created_at,
+                  }))}
+                />
+                <HistoryList
+                  title="Retail Jobs"
+                  empty="No retail jobs yet"
+                  items={clientRetailJobs.map((j: any) => ({
+                    id: j.id,
+                    number: j.job_number,
+                    label: j.status,
+                    detail: j.title,
+                    amount: j.total,
+                    date: j.created_at,
+                  }))}
+                />
+                <HistoryList
+                  title="Payments"
+                  empty="No payments yet"
+                  items={clientPayments.map((p: any) => ({
+                    id: `${p.type}-${p.id}`,
+                    number: p.number,
+                    label: p.payment_status || 'paid',
+                    detail: p.payment_method ? `${p.type} | ${p.payment_method}` : p.type,
+                    amount: Number(p.amount_paid || p.total || 0),
+                    date: p.payment_date || p.created_at,
+                  }))}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setIsFormOpen(false)} className="btn-secondary flex-1">
               Cancel
@@ -661,6 +770,42 @@ export default function ClientsPage() {
         isLoading={isDeleting}
       />
     </AppShell>
+  )
+}
+
+function HistoryList({ title, empty, items }: {
+  title: string
+  empty: string
+  items: { id: string; number: string; label?: string; detail?: string; amount?: number; date?: string }[]
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-bg-elevated p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">{title}</p>
+        <span className="text-[10px] text-text-muted">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-text-muted py-3">{empty}</p>
+      ) : (
+        <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          {items.map(item => (
+            <div key={item.id} className="rounded border border-border/70 bg-bg-surface px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs font-semibold text-accent truncate">{item.number}</p>
+                  {item.detail && <p className="text-xs text-text-secondary truncate">{item.detail}</p>}
+                  <p className="text-[11px] text-text-muted">{item.date ? formatDate(item.date) : ''}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  {item.label && <p className="text-[10px] uppercase text-text-muted">{item.label}</p>}
+                  {typeof item.amount === 'number' && <p className="text-xs font-semibold text-text-primary">{formatCurrency(item.amount)}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
