@@ -28,6 +28,7 @@ const STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', '
 const ACTIVE_STATUSES: QuoteStatus[] = ['draft', 'sent', 'approved', 'in_production', 'cancelled']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const QUOTE_WORKER_RE = /\[LA_WORKER:([^\]]+)\]/i
+const QUOTE_CLIENT_NUMBER_RE = /\[LA_CLIENT_NUMBER:([^\]]+)\]/i
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -116,7 +117,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -201,7 +202,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -268,7 +269,7 @@ function QuotesPageInner() {
         
         vat_amount: vat,
         total: discountedSub + vat,
-        notes: notesWithQuoteWorker(data.notes, data.assigned_worker) || null,
+        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, data.client_phone) || null,
         valid_until: data.valid_until || null,
         is_retail: false,
         created_by: null,
@@ -585,6 +586,8 @@ function QuotesPageInner() {
                           if (cd?.address) setValue('client_address', cd.address)
                           const { data: ed } = await supabase.from('client_emails').select('email').eq('client_id', c.id).limit(1).single()
                           if (ed?.email) setValue('client_email', ed.email)
+                          const { data: pd } = await supabase.from('client_phones').select('phone').eq('client_id', c.id).limit(1).single()
+                          if (pd?.phone) setValue('client_phone', pd.phone)
                         }}>
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}

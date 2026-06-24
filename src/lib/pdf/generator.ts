@@ -30,6 +30,11 @@ function withItemChunk<T extends { items?: any[] }>(job: T, items: any[]): T {
   return { ...job, items }
 }
 
+function numberValue(value: unknown) {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? n : 0
+}
+
 function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: JobCardPrintOptions = {}) {
   const W = 148   // A5 width mm
   const H = 210   // A5 height mm
