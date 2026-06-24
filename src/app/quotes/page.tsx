@@ -18,6 +18,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
+import { ensureClientRecord, normalizeClientPhone } from '@/lib/clients/ensureClientRecord'
 import {
   Plus, Lock, Unlock, Download, Mail, Printer,
   Trash2, X, FileText, CheckCircle2, CheckSquare, Square, Layers
@@ -73,14 +74,7 @@ function getQuoteClientNumber(notes?: string | null) {
 }
 
 function cleanClientNumber(phone?: string | null) {
-  let value = String(phone || '').trim()
-  if (!value) return ''
-  value = value.replace(/[^\d+]/g, '')
-  value = value.replace(/^\++/, '+')
-  if (value.startsWith('+264264')) return '+264' + value.slice(7)
-  if (value.startsWith('264264')) return '+264' + value.slice(6)
-  if (value.startsWith('264') && !value.startsWith('+264')) return '+' + value
-  return value
+  return normalizeClientPhone(phone)
 }
 
 function stripQuoteHiddenTags(notes?: string | null) {
@@ -291,10 +285,18 @@ function QuotesPageInner() {
       const discAmt = sub * ((data.discount || 0) / 100)
       const discountedSub = sub - discAmt
       const vat = discountedSub * (data.vat_rate / 100)
+      const client = await ensureClientRecord({
+        clientId: data.client_id,
+        name: data.client_name,
+        email: data.client_email,
+        phone: data.client_phone,
+        address: data.client_address,
+        createdBy: profile?.id,
+      })
 
       const quotePayload = {
-        client_id: null, // Disabled - client_id from dropdown not in DB
-        client_name: data.client_name,
+        client_id: client?.id || null,
+        client_name: client?.name || data.client_name,
         client_email: data.client_email || null,
         client_address: data.client_address || null,
         status: data.status,

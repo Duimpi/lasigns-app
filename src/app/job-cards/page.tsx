@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
+import { ensureClientRecord } from '@/lib/clients/ensureClientRecord'
 import { Plus, Download, Mail, Printer, Trash2, X, Briefcase, CheckCircle2, CheckSquare, Square, Layers, MessageSquare } from 'lucide-react'
 import type { JobCard, JobCardStatus, Priority, Worker, Client, Quote } from '@/types'
 
@@ -269,12 +270,17 @@ function JobCardsPageInner() {
       const vat = sub * (VAT_RATE / 100)
 
       const completionDate = data.status === 'completed' ? new Date().toISOString() : null
+      const client = await ensureClientRecord({
+        clientId: data.client_id,
+        name: data.client_name,
+        createdBy: profile?.id,
+      })
       const payload: Record<string, unknown> = {
         title: data.title,
         description: data.description || null,
         notes: withCollectionTag(data.notes, data.for_collection) || null,
-        client_id: data.client_id || null,
-        client_name: data.client_name || null,
+        client_id: client?.id || null,
+        client_name: client?.name || data.client_name || null,
         status: data.status,
         priority: data.priority,
         assigned_worker: data.assigned_worker || null,

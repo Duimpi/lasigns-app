@@ -18,6 +18,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
+import { ensureClientRecord } from '@/lib/clients/ensureClientRecord'
 import {
   Plus, Download, Mail, Printer, Trash2, X, ShoppingBag, CheckCircle2
 } from 'lucide-react'
@@ -351,13 +352,18 @@ function RetailPageInner() {
       const vat = discountedSub * (data.vat_rate / 100)
       const normalizedStatus = normalizeJobStatus(data.status)
       const completionDate = normalizedStatus === 'completed' ? new Date().toISOString() : null
+      const client = await ensureClientRecord({
+        clientId: data.client_id,
+        name: data.client_name,
+        createdBy: profile?.id,
+      })
 
       const payload = {
         title: data.title,
         description: data.description || null,
         notes: data.notes || null,
-        client_id: data.client_id || null,
-        client_name: data.client_name || null,
+        client_id: client?.id || null,
+        client_name: client?.name || data.client_name || null,
         store: data.store,
         branch: data.branch,
         status: normalizedStatus,
