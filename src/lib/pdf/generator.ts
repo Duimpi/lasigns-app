@@ -18,6 +18,7 @@ type JobCardPrintOptions = {
 }
 
 const JOB_CARD_ROWS_PER_PAGE = 18
+const QUOTE_ROWS_PER_PAGE = 12
 
 function chunkJobItems<T>(items: T[] = [], size = JOB_CARD_ROWS_PER_PAGE): T[][] {
   if (items.length === 0) return [[]]
@@ -419,6 +420,7 @@ type QuoteJobCardPrintInput = {
   quote_number: string
   client_name?: string | null
   client_email?: string | null
+  client_phone?: string | null
   client_address?: string | null
   status?: string
   vat_rate?: number
@@ -432,59 +434,245 @@ type QuoteJobCardPrintInput = {
   created_at?: string
 }
 
-function quoteToJobCard(quote: QuoteJobCardPrintInput): JobCard {
-  const createdAt = quote.created_at || new Date().toISOString()
-  return {
-    id: '',
-    job_number: quote.quote_number,
-    title: quote.quote_number,
-    description: quote.notes || undefined,
-    notes: quote.notes || undefined,
-    client_id: undefined,
-    client_name: quote.client_name || '',
-    status: 'pending',
-    priority: 'normal',
-    assigned_worker: quote.assigned_worker || undefined,
-    due_date: quote.valid_until || undefined,
-    is_retail: false,
-    sales_rep: '',
-    subtotal: quote.subtotal || 0,
-    vat_amount: quote.vat_amount || 0,
-    total: quote.total || 0,
-    vat_rate: quote.vat_rate || 15,
-    created_at: createdAt,
-    updated_at: createdAt,
-    client: {
-      id: '',
-      name: quote.client_name || '',
-      company: '',
-      address: quote.client_address || '',
-      created_at: createdAt,
-      updated_at: createdAt,
-      phones: [],
-      emails: quote.client_email ? [{
-        id: '',
-        client_id: '',
-        email: quote.client_email,
-        label: 'Primary',
-        is_primary: true,
-      }] : [],
-    },
-    items: (quote.items || []).map((item, idx) => ({
-      id: '',
-      job_card_id: '',
-      description: item.description,
-      quantity: item.quantity,
-      unit_price: item.unit_price || 0,
-      line_total: item.line_total || item.total || 0,
-      size: item.size || undefined,
-      sort_order: idx,
-    })),
-  } as JobCard
+function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOffset: number, options: JobCardPrintOptions = {}) {
+  const W = 148
+  const H = 210
+  const m = 5
+  const iW = W - m * 2
+  let y = m
+  const isLastPage = (options.pageNumber || 1) === (options.totalPages || 1)
+
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.6)
+  doc.rect(xOffset + m, m, iW, H - m * 2)
+
+  try {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xOffset + m + 1, y + 1, 40, 22, 'F')
+    doc.addImage(LOGO_BASE64, 'PNG', xOffset + m + 1, y + 1, 40, 22)
+  } catch {
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.text('LA Signs', xOffset + m + 2, y + 12)
+  }
+
+  const infoX = xOffset + m + 65
+  const infoW = iW - 65
+  const infoRows = [
+    { label: 'DATE:', value: formatDate(quote.created_at || new Date().toISOString()) },
+    { label: 'Valid Until:', value: formatDate(quote.valid_until) || '' },
+    { label: 'Quote No:', value: quote.quote_number || '' },
+    { label: 'Status:', value: (quote.status || 'draft').replace('_', ' ').toUpperCase() },
+    { label: 'Worker:', value: quote.assigned_worker || '' },
+  ]
+
+  let infoY = y + 2
+  for (let i = 0; i < infoRows.length; i++) {
+    const row = infoRows[i]
+    const rowH = 4.5
+    if (i === 2) {
+      doc.setFillColor(255, 255, 0)
+      doc.rect(infoX, infoY, infoW, rowH, 'F')
+    }
+    doc.setDrawColor(150, 150, 150)
+    doc.setLineWidth(0.2)
+    doc.rect(infoX, infoY, infoW, rowH)
+    doc.setTextColor(0, 0, 0)
+    doc.setFontSize(6)
+    doc.setFont('helvetica', 'bold')
+    doc.text(row.label, infoX + 1, infoY + 3)
+    doc.setFont('helvetica', 'normal')
+    if (row.value) doc.text(String(row.value), infoX + 22, infoY + 3)
+    infoY += rowH
+  }
+
+  y += 24
+  doc.setFillColor(255, 255, 255)
+  doc.rect(xOffset + m, y, iW, 5, 'F')
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.text('QUOTATION', xOffset + m + 1, y + 3.7)
+
+  if ((options.totalPages || 1) > 1) {
+    const itemRange = options.totalItems
+      ? 'Items ' + (options.itemStart || 0) + '-' + (options.itemEnd || 0) + ' of ' + options.totalItems
+      : ''
+    doc.setFontSize(6.5)
+    doc.text('Page ' + (options.pageNumber || 1) + ' of ' + (options.totalPages || 1), xOffset + m + iW - 1, y + 3.5, { align: 'right' })
+    if (itemRange) {
+      doc.setFont('helvetica', 'normal')
+      doc.text(itemRange, xOffset + m + iW - 1, y + 7.5, { align: 'right' })
+    }
+  }
+
+  y += 6
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.4)
+  doc.line(xOffset + m, y, xOffset + m + iW, y)
+  y += 1
+
+  doc.setFontSize(6.5)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Client:', xOffset + m + 1, y + 4)
+  doc.setFontSize(7.2)
+  doc.text(quote.client_name || '', xOffset + m + 14, y + 4)
+  doc.setLineDashPattern([0.5, 0.5], 0)
+  doc.line(xOffset + m + 14, y + 5, xOffset + m + iW, y + 5)
+  doc.setLineDashPattern([], 0)
+  y += 7
+
+  doc.setFontSize(6.5)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Tel/Cell:', xOffset + m + 1, y + 4)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.8)
+  doc.text(quote.client_phone || '', xOffset + m + 14, y + 4)
+  doc.setLineDashPattern([0.5, 0.5], 0)
+  doc.line(xOffset + m + 14, y + 5, xOffset + m + 65, y + 5)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(6.5)
+  doc.text('Email:', xOffset + m + 67, y + 4)
+  doc.setFont('helvetica', 'normal')
+  const emailLines = doc.splitTextToSize(quote.client_email || '', iW - 80)
+  doc.text(emailLines[0] || '', xOffset + m + 78, y + 4)
+  doc.line(xOffset + m + 78, y + 5, xOffset + m + iW, y + 5)
+  doc.setLineDashPattern([], 0)
+  y += 7
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(6.5)
+  doc.text('Address:', xOffset + m + 1, y + 4)
+  doc.setFont('helvetica', 'normal')
+  const addressLines = doc.splitTextToSize(quote.client_address || '', iW - 18)
+  doc.text(addressLines[0] || '', xOffset + m + 17, y + 4)
+  y += 6
+
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.5)
+  doc.line(xOffset + m, y, xOffset + m + iW, y)
+
+  const COL = {
+    qty: { x: xOffset + m, w: 9 },
+    size: { x: xOffset + m + 9, w: 20 },
+    desc: { x: xOffset + m + 29, w: 55 },
+    unit: { x: xOffset + m + 84, w: 27 },
+    total: { x: xOffset + m + 111, w: iW - 111 },
+  }
+
+  doc.setFillColor(255, 255, 255)
+  doc.setFontSize(6.8)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Qty', COL.qty.x + 1, y + 5)
+  doc.text('Size', COL.size.x + 1, y + 5)
+  doc.text('Description', COL.desc.x + 1, y + 5)
+  doc.text('Unit', COL.unit.x + 1, y + 5)
+  doc.text('Total', COL.total.x + 1, y + 5)
+
+  doc.setLineWidth(0.3)
+  doc.line(COL.size.x, y, COL.size.x, y + 8)
+  doc.line(COL.desc.x, y, COL.desc.x, y + 8)
+  doc.line(COL.unit.x, y, COL.unit.x, y + 8)
+  doc.line(COL.total.x, y, COL.total.x, y + 8)
+  y += 8
+  doc.line(xOffset + m, y, xOffset + m + iW, y)
+
+  const items = quote.items || []
+  const ROW_H = 7
+  doc.setFont('helvetica', 'normal')
+
+  for (let i = 0; i < QUOTE_ROWS_PER_PAGE; i++) {
+    const item = items[i]
+    const rowY = y
+    doc.setDrawColor(180, 180, 180)
+    doc.setLineWidth(0.2)
+    doc.line(COL.size.x, rowY, COL.size.x, rowY + ROW_H)
+    doc.line(COL.desc.x, rowY, COL.desc.x, rowY + ROW_H)
+    doc.line(COL.unit.x, rowY, COL.unit.x, rowY + ROW_H)
+    doc.line(COL.total.x, rowY, COL.total.x, rowY + ROW_H)
+
+    if (item) {
+      const lineTotal = numberValue(item.line_total || item.total || numberValue(item.quantity) * numberValue(item.unit_price))
+      doc.setTextColor(0, 0, 0)
+      doc.setFontSize(7.2)
+      doc.setFont('helvetica', 'bold')
+      doc.text(String(item.quantity || ''), COL.qty.x + 1, rowY + 5)
+      doc.setFont('helvetica', 'normal')
+      doc.text(item.size || '', COL.size.x + 1, rowY + 5)
+      const descLines = doc.splitTextToSize(item.description || '', COL.desc.w - 2)
+      doc.setFontSize(6.8)
+      doc.text(descLines[0] || '', COL.desc.x + 1, rowY + 3.2)
+      if (descLines[1]) doc.text(descLines[1], COL.desc.x + 1, rowY + 6.2)
+      doc.setFontSize(6.6)
+      doc.text(formatCurrency(numberValue(item.unit_price)), COL.unit.x + COL.unit.w - 1, rowY + 5, { align: 'right' })
+      doc.text(formatCurrency(lineTotal), COL.total.x + COL.total.w - 1, rowY + 5, { align: 'right' })
+    }
+
+    doc.setDrawColor(180, 180, 180)
+    doc.setLineWidth(0.15)
+    doc.line(xOffset + m, rowY + ROW_H, xOffset + m + iW, rowY + ROW_H)
+    y += ROW_H
+  }
+
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.5)
+  doc.line(xOffset + m, y, xOffset + m + iW, y)
+
+  const bottomY = y
+  const bottomH = 36
+  const totalsX = xOffset + m + iW - 48
+  const totalsW = 48
+
+  doc.setFontSize(6.8)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Notes:', xOffset + m + 1, bottomY + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  const notesLines = isLastPage && quote.notes ? doc.splitTextToSize(quote.notes, totalsX - (xOffset + m) - 4).slice(0, 3) : []
+  if (notesLines.length) doc.text(notesLines, xOffset + m + 1, bottomY + 10)
+  else if (!isLastPage) doc.text('Continued on next page', xOffset + m + 1, bottomY + 10)
+
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.3)
+  doc.line(totalsX, bottomY, totalsX, bottomY + bottomH)
+  doc.line(totalsX + 24, bottomY, totalsX + 24, bottomY + bottomH)
+
+  const totalRows = isLastPage ? [
+    { label: 'N$ (excl)', value: formatCurrency(numberValue(quote.subtotal)) },
+    { label: String(quote.vat_rate || 15) + '% VAT', value: formatCurrency(numberValue(quote.vat_amount)) },
+    { label: 'N$ (Incl)', value: formatCurrency(numberValue(quote.total)) },
+  ] : [
+    { label: 'N$ (excl)', value: 'Continued' },
+    { label: String(quote.vat_rate || 15) + '% VAT', value: '' },
+    { label: 'N$ (Incl)', value: '' },
+  ]
+  const tRowH = bottomH / 3
+  for (let i = 0; i < totalRows.length; i++) {
+    const ty = bottomY + i * tRowH
+    if (i > 0) doc.line(totalsX, ty, totalsX + totalsW, ty)
+    doc.setFontSize(6.5)
+    doc.setFont('helvetica', 'bold')
+    doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1.5)
+    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
+    doc.text(totalRows[i].value, totalsX + totalsW - 1, ty + tRowH / 2 + 1.5, { align: 'right' })
+  }
+
+  y = bottomY + bottomH
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.5)
+  doc.line(xOffset + m, y, xOffset + m + iW, y)
+
+  if (xOffset === 0) {
+    doc.setDrawColor(150, 150, 150)
+    doc.setLineDashPattern([1, 2], 0)
+    doc.setLineWidth(0.3)
+    doc.line(W, 2, W, H - 2)
+    doc.setLineDashPattern([], 0)
+  }
 }
 
 /**
- * Generate quote as the same A4 landscape / 2-up A5 layout used by Job Cards.
+ * Generate quote as a priced A4 landscape / 2-up A5 layout.
  * If no second quote is supplied, the first quote is duplicated on the right.
  */
 export function generateQuoteJobCardPDF(quote: QuoteJobCardPrintInput, secondQuote: QuoteJobCardPrintInput = quote): jsPDF {
@@ -494,29 +682,27 @@ export function generateQuoteJobCardPDF(quote: QuoteJobCardPrintInput, secondQuo
     format: 'a4',
   })
 
-  const leftJob = quoteToJobCard(quote)
-  const rightJob = quoteToJobCard(secondQuote)
-  const leftChunks = chunkJobItems(leftJob.items || [])
-  const rightChunks = chunkJobItems(rightJob.items || [])
+  const leftChunks = chunkJobItems(quote.items || [], QUOTE_ROWS_PER_PAGE)
+  const rightChunks = chunkJobItems(secondQuote.items || [], QUOTE_ROWS_PER_PAGE)
   const pageCount = Math.max(leftChunks.length, rightChunks.length)
 
   for (let idx = 0; idx < pageCount; idx++) {
     if (idx > 0) doc.addPage('a4', 'landscape')
     const leftItems = leftChunks[idx] || []
     const rightItems = rightChunks[idx] || []
-    drawSingleJobCard(doc, withItemChunk(leftJob, leftItems), 0, {
+    drawSingleQuotePrintCard(doc, withItemChunk(quote, leftItems), 0, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: leftItems.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
-      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (leftJob.items || []).length),
-      totalItems: (leftJob.items || []).length,
+      itemStart: leftItems.length ? (idx * QUOTE_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * QUOTE_ROWS_PER_PAGE, (quote.items || []).length),
+      totalItems: (quote.items || []).length,
     })
-    drawSingleJobCard(doc, withItemChunk(rightJob, rightItems), 148.5, {
+    drawSingleQuotePrintCard(doc, withItemChunk(secondQuote, rightItems), 148.5, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: rightItems.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
-      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (rightJob.items || []).length),
-      totalItems: (rightJob.items || []).length,
+      itemStart: rightItems.length ? (idx * QUOTE_ROWS_PER_PAGE) + 1 : 0,
+      itemEnd: Math.min((idx + 1) * QUOTE_ROWS_PER_PAGE, (secondQuote.items || []).length),
+      totalItems: (secondQuote.items || []).length,
     })
   }
 

@@ -43,6 +43,7 @@ const quoteSchema = z.object({
   client_id: z.string().optional(),
   client_name: z.string().min(1, 'Client name is required'),
   client_email: z.string().email().or(z.literal('').optional()),
+  client_phone: z.string().optional().default(''),
   client_address: z.string().optional(),
   status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
   vat_rate: z.coerce.number().default(15),
@@ -58,6 +59,7 @@ type QuoteFormData = z.infer<typeof quoteSchema>
 interface QuoteWithItems extends Quote {
   items: Quote['items']
   assigned_worker?: Worker | ''
+  client_phone?: string | null
 }
 
 function getQuoteWorker(notes?: string | null): Worker | '' {
@@ -66,31 +68,50 @@ function getQuoteWorker(notes?: string | null): Worker | '' {
   return worker && WORKERS.includes(worker as Worker) ? worker as Worker : ''
 }
 
-function stripQuoteWorkerTag(notes?: string | null) {
+function getQuoteClientNumber(notes?: string | null) {
+  return String(notes || '').match(QUOTE_CLIENT_NUMBER_RE)?.[1]?.trim() || ''
+}
+
+function stripQuoteHiddenTags(notes?: string | null) {
   return String(notes || '')
     .replace(QUOTE_WORKER_RE, '')
+    .replace(QUOTE_CLIENT_NUMBER_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
+function stripQuoteWorkerTag(notes?: string | null) {
+  return stripQuoteHiddenTags(notes)
+}
+
+function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null) {
+  const cleanNotes = stripQuoteHiddenTags(notes)
+  return [
+    cleanNotes,
+    worker ? '[LA_WORKER:' + worker + ']' : '',
+    clientNumber ? '[LA_CLIENT_NUMBER:' + clientNumber + ']' : '',
+  ].filter(Boolean).join('\n')
+}
+
 function notesWithQuoteWorker(notes?: string | null, worker?: string | null) {
-  const cleanNotes = stripQuoteWorkerTag(notes)
-  return [cleanNotes, worker ? '[LA_WORKER:' + worker + ']' : ''].filter(Boolean).join('\n')
+  return notesWithQuoteMeta(notes, worker, getQuoteClientNumber(notes))
 }
 
 function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
   return {
     ...quote,
-    notes: stripQuoteWorkerTag(quote.notes),
+    notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
+    client_phone: (quote as any).client_phone || getQuoteClientNumber(quote.notes),
   }
 }
 
 function quoteForPrint(quote: QuoteWithItems) {
   return {
     ...quote,
-    notes: stripQuoteWorkerTag(quote.notes),
+    notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
+    client_phone: quote.client_phone || getQuoteClientNumber(quote.notes),
   }
 }
 
@@ -221,6 +242,7 @@ function QuotesPageInner() {
       notes: stripQuoteWorkerTag(quote.notes),
       valid_until: quote.valid_until || '',
       assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes),
+      client_phone: quote.client_phone || getQuoteClientNumber(quote.notes),
       discount: (quote as any).discount || 0,
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
@@ -565,7 +587,7 @@ function QuotesPageInner() {
           {/* Client section */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">Client Information</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="relative">
                 <label className="label">Client Name *</label>
                 <input
@@ -600,6 +622,10 @@ function QuotesPageInner() {
               <div>
                 <label className="label">Client Email</label>
                 <input {...register('client_email')} type="email" className="input" placeholder="client@example.com" />
+              </div>
+              <div>
+                <label className="label">Client Number</label>
+                <input {...register('client_phone')} className="input" placeholder="081 234 5678" />
               </div>
             </div>
             <div>
