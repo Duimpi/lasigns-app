@@ -214,7 +214,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // ── TABLE ROWS ────────────────────────────────────────────
   const items = job.items || []
-  const ROW_H = 7
+  const ROW_H = 6.2
   const MAX_ROWS = JOB_CARD_ROWS_PER_PAGE
 
   doc.setFont('helvetica', 'normal')
@@ -234,18 +234,18 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
       doc.setTextColor(0, 0, 0)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(8)
-      doc.text(String(item.quantity), COL.qty.x + 1, rowY + 5)
+      doc.text(String(item.quantity), COL.qty.x + 1, rowY + 4.6)
       doc.setFont('helvetica', 'normal')
-      doc.text(item.size || '', COL.size.x + 1, rowY + 5)
+      doc.text(item.size || '', COL.size.x + 1, rowY + 4.6)
 
       // Description — allow 2 lines
       const descLines = doc.splitTextToSize(item.description, COL.material.w - 3)
       doc.setFontSize(7.5)
       if (descLines.length > 1) {
-        doc.text(descLines[0], COL.material.x + 1, rowY + 3.5)
-        doc.text(descLines[1], COL.material.x + 1, rowY + 7)
+        doc.text(descLines[0], COL.material.x + 1, rowY + 3.2)
+        doc.text(descLines[1], COL.material.x + 1, rowY + 5.8)
       } else {
-        doc.text(descLines[0] || '', COL.material.x + 1, rowY + 5)
+        doc.text(descLines[0] || '', COL.material.x + 1, rowY + 4.6)
       }
     }
 
@@ -264,7 +264,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // Comments + Totals box
   const bottomY = y
-  const bottomH = 30
+  const bottomH = 21
   const totalsX = xOffset + m + iW - 42
   const totalsW = 42
 
@@ -277,8 +277,8 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setLineDashPattern([0.5, 0.5], 0)
   doc.setDrawColor(150, 150, 150)
   doc.setLineWidth(0.2)
-  for (let i = 0; i < 3; i++) {
-    const ly = bottomY + 10 + i * 6
+  for (let i = 0; i < 2; i++) {
+    const ly = bottomY + 10 + i * 5
     doc.line(xOffset + m + 1, ly, totalsX - 2, ly)
   }
   doc.setLineDashPattern([], 0)
@@ -290,9 +290,9 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // Totals rows — NO PRICES on job card
   const totalRows = [
-    { label: 'N$ (excl)', value: '' },
-    { label: '15% Vat', value: '' },
-    { label: 'N$ (Incl)', value: '' },
+    { label: 'Total Exclusive', value: formatCurrency(numberValue(job.subtotal)) },
+    { label: 'Total VAT', value: formatCurrency(numberValue(job.vat_amount)) },
+    { label: 'Grand Total', value: formatCurrency(numberValue(job.total)) },
   ]
   const tRowH = bottomH / 3
   for (let i = 0; i < totalRows.length; i++) {
@@ -300,9 +300,11 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     if (i > 0) {
       doc.line(totalsX, ty, xOffset + m + iW, ty)
     }
-    doc.setFontSize(6.5)
+    doc.setFontSize(5.5)
     doc.setFont('helvetica', 'bold')
     doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1)
+    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
+    doc.text(totalRows[i].value, xOffset + m + iW - 1, ty + tRowH / 2 + 1, { align: 'right' })
     // Value column
     doc.line(totalsX + 22, bottomY, totalsX + 22, bottomY + bottomH)
   }
@@ -578,7 +580,7 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.line(xOffset + m, y, xOffset + m + iW, y)
 
   const items = quote.items || []
-  const ROW_H = 7
+  const ROW_H = 6.2
   doc.setFont('helvetica', 'normal')
 
   for (let i = 0; i < QUOTE_ROWS_PER_PAGE; i++) {
@@ -596,9 +598,9 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
       doc.setTextColor(0, 0, 0)
       doc.setFontSize(7.2)
       doc.setFont('helvetica', 'bold')
-      doc.text(String(item.quantity || ''), COL.qty.x + 1, rowY + 5)
+      doc.text(String(item.quantity || ''), COL.qty.x + 1, rowY + 4.6)
       doc.setFont('helvetica', 'normal')
-      doc.text(item.size || '', COL.size.x + 1, rowY + 5)
+      doc.text(item.size || '', COL.size.x + 1, rowY + 4.6)
       const descLines = doc.splitTextToSize(item.description || '', COL.desc.w - 2)
       doc.setFontSize(6.8)
       doc.text(descLines[0] || '', COL.desc.x + 1, rowY + 3.2)
