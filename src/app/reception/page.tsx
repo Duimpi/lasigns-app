@@ -13,9 +13,13 @@ import {
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'collection' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
+type Tab = 'collection' | 'delivery' | 'courier' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
 const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
 const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
+const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
+const DELIVERY_DELIVERED_TAG = '[LA_DELIVERY_DELIVERED]'
+const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
+const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
 
 interface PayableItem {
   id: string
@@ -48,6 +52,10 @@ function ReceptionPageInner() {
   const [items, setItems] = useState<PayableItem[]>([])
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([])
   const [collectedItems, setCollectedItems] = useState<CollectionItem[]>([])
+  const [deliveryItems, setDeliveryItems] = useState<CollectionItem[]>([])
+  const [deliveredItems, setDeliveredItems] = useState<CollectionItem[]>([])
+  const [courierItems, setCourierItems] = useState<CollectionItem[]>([])
+  const [courieredItems, setCourieredItems] = useState<CollectionItem[]>([])
   const [walkinList, setWalkinList] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -57,6 +65,8 @@ function ReceptionPageInner() {
   const [payNote, setPayNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [showCollected, setShowCollected] = useState(false)
+  const [showDelivered, setShowDelivered] = useState(false)
+  const [showCouriered, setShowCouriered] = useState(false)
   const [paymentHistory, setPaymentHistory] = useState<any[]>([])
 
   // Walk-in
@@ -92,8 +102,22 @@ function ReceptionPageInner() {
         return notes.includes(COLLECTION_PENDING_TAG) && !notes.includes(COLLECTION_COLLECTED_TAG)
       })
       const collected = (collData || []).filter((j: any) => String(j.notes || '').includes(COLLECTION_COLLECTED_TAG))
+      const deliveryPending = (collData || []).filter((j: any) => {
+        const notes = String(j.notes || '')
+        return notes.includes(DELIVERY_PENDING_TAG) && !notes.includes(DELIVERY_DELIVERED_TAG)
+      })
+      const delivered = (collData || []).filter((j: any) => String(j.notes || '').includes(DELIVERY_DELIVERED_TAG))
+      const courierPending = (collData || []).filter((j: any) => {
+        const notes = String(j.notes || '')
+        return notes.includes(COURIER_PENDING_TAG) && !notes.includes(COURIER_COURIERED_TAG)
+      })
+      const couriered = (collData || []).filter((j: any) => String(j.notes || '').includes(COURIER_COURIERED_TAG))
       setCollectionItems(pending as CollectionItem[])
       setCollectedItems(collected as CollectionItem[])
+      setDeliveryItems(deliveryPending as CollectionItem[])
+      setDeliveredItems(delivered as CollectionItem[])
+      setCourierItems(courierPending as CollectionItem[])
+      setCourieredItems(couriered as CollectionItem[])
 
       // Outstanding payments: Reception only handles completed non-retail job cards.
       const { data: jobs } = await supabase
@@ -166,6 +190,40 @@ function ReceptionPageInner() {
     toast.success(`✅ ${item.client_name} collected their order`)
     loadData()
   }
+  function getNoteValue(notes: string | null | undefined, key: string) {
+    const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
+    if (!match?.[1]) return ''
+    try { return decodeURIComponent(match[1]) } catch { return match[1] }
+  }
+
+  async function markFulfillmentDone(item: CollectionItem, pendingTag: string, doneTag: string, label: 'Delivered' | 'Couriered') {
+    const currentNotes = String(item.notes || '')
+    const nextNotes = currentNotes.includes(pendingTag)
+      ? currentNotes.replace(pendingTag, doneTag)
+      : [currentNotes, doneTag].filter(Boolean).join('\n')
+    const { error } = await supabase.from('job_cards').update({
+      notes: nextNotes + '\n' + label + ' on ' + new Date().toLocaleDateString(),
+    }).eq('id', item.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success(label + ' recorded')
+    loadData()
+  }
+
+  async function deleteFulfillmentHistory(item: CollectionItem, pendingTag: string, doneTag: string, doneLabel: string) {
+    if (!confirm(`Remove ${doneLabel.toLowerCase()} history for ${item.client_name || 'this client'}?`)) return
+    const nextNotes = String(item.notes || '')
+      .replace(doneTag, '')
+      .replace(pendingTag, '')
+      .split('\n')
+      .filter(line => !line.startsWith(doneLabel + ' on '))
+      .join('\n')
+      .trim()
+    const { error } = await supabase.from('job_cards').update({ notes: nextNotes || null }).eq('id', item.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success(doneLabel + ' history removed')
+    loadData()
+  }
+
   async function deleteCollectedItem(item: CollectionItem) {
     if (!confirm(`Remove collected history for ${item.client_name || 'this client'}?`)) return
     const nextNotes = String(item.notes || '')
@@ -180,7 +238,6 @@ function ReceptionPageInner() {
     toast.success('Collected history removed')
     loadData()
   }
-
   async function recordPayment() {
     if (!payingItem || !payAmount) return
     setIsSaving(true)
@@ -340,10 +397,14 @@ function ReceptionPageInner() {
       <div className="px-6 pb-6 space-y-4">
 
         {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-2"><Package className="w-4 h-4 text-blue-400" /><span className="text-sm text-text-muted">Ready to Collect</span></div>
             <p className="text-2xl font-bold text-blue-400">{collectionItems.length}</p>
+          </div>
+          <div className="card p-4">
+            <div className="flex items-center gap-2 mb-2"><PackageCheck className="w-4 h-4 text-emerald-400" /><span className="text-sm text-text-muted">Delivery/Courier</span></div>
+            <p className="text-2xl font-bold text-emerald-400">{deliveryItems.length + courierItems.length}</p>
           </div>
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4 text-amber-400" /><span className="text-sm text-text-muted">Outstanding</span></div>
@@ -361,6 +422,8 @@ function ReceptionPageInner() {
         <div className="flex gap-1 border-b border-border overflow-x-auto">
           {[
             { key: 'collection', label: 'Collections', count: collectionItems.length },
+            { key: 'delivery', label: 'Delivery', count: deliveryItems.length },
+            { key: 'courier', label: 'Courier', count: courierItems.length },
             { key: 'outstanding', label: 'Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
@@ -453,6 +516,104 @@ function ReceptionPageInner() {
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+
+
+        {/* DELIVERY TAB */}
+        {tab === 'delivery' && (
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="card py-12 text-center text-text-muted">Loading...</div>
+            ) : deliveryItems.length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No orders waiting for delivery</div>
+            ) : deliveryItems.map(item => (
+              <div key={item.id} className="card p-4 border-l-4 border-emerald-500">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                    <p className="font-semibold text-text-primary mt-1">{getNoteValue(item.notes, 'DELIVERY_NAME') || item.client_name || 'Unknown'}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'DELIVERY_NUMBER')}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'DELIVERY_ADDRESS')}</p>
+                    <p className="text-xs text-text-muted mt-1">{item.title}</p>
+                  </div>
+                  <button onClick={() => markFulfillmentDone(item, DELIVERY_PENDING_TAG, DELIVERY_DELIVERED_TAG, 'Delivered')} className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm transition-colors">
+                    <CheckCheck className="w-4 h-4" /> Delivered
+                  </button>
+                </div>
+              </div>
+            ))}
+            {deliveredItems.length > 0 && (
+              <div className="mt-4">
+                <button onClick={() => setShowDelivered(!showDelivered)} className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1 mb-3">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {showDelivered ? 'Hide' : 'Show'} delivered ({deliveredItems.length})
+                </button>
+                {showDelivered && deliveredItems.map(item => (
+                  <div key={item.id} className="card p-4 border-l-4 border-emerald-500 opacity-60 mb-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        <p className="font-semibold text-text-primary">{getNoteValue(item.notes, 'DELIVERY_NAME') || item.client_name || 'Unknown'}</p>
+                        <p className="text-xs text-text-muted">{item.title}</p>
+                      </div>
+                      <button onClick={() => deleteFulfillmentHistory(item, DELIVERY_PENDING_TAG, DELIVERY_DELIVERED_TAG, 'Delivered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* COURIER TAB */}
+        {tab === 'courier' && (
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="card py-12 text-center text-text-muted">Loading...</div>
+            ) : courierItems.length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No orders waiting for courier</div>
+            ) : courierItems.map(item => (
+              <div key={item.id} className="card p-4 border-l-4 border-purple-500">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                    <p className="font-semibold text-text-primary mt-1">{getNoteValue(item.notes, 'COURIER_COMPANY') || 'Courier'}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'COURIER_CONTACT')}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'COURIER_ADDRESS')}</p>
+                    <p className="text-xs text-text-muted mt-1">{getNoteValue(item.notes, 'COURIER_PAYMENT') === 'we_pay' ? 'We pay' : 'Pay on Delivery'}</p>
+                  </div>
+                  <button onClick={() => markFulfillmentDone(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors">
+                    <CheckCheck className="w-4 h-4" /> Couriered
+                  </button>
+                </div>
+              </div>
+            ))}
+            {courieredItems.length > 0 && (
+              <div className="mt-4">
+                <button onClick={() => setShowCouriered(!showCouriered)} className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1 mb-3">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {showCouriered ? 'Hide' : 'Show'} couriered ({courieredItems.length})
+                </button>
+                {showCouriered && courieredItems.map(item => (
+                  <div key={item.id} className="card p-4 border-l-4 border-purple-500 opacity-60 mb-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        <p className="font-semibold text-text-primary">{getNoteValue(item.notes, 'COURIER_COMPANY') || 'Courier'}</p>
+                        <p className="text-xs text-text-muted">{item.title}</p>
+                      </div>
+                      <button onClick={() => deleteFulfillmentHistory(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
                       </button>
                     </div>
                   </div>
@@ -735,4 +896,3 @@ function ReceptionPageInner() {
 export default function ReceptionPage() {
   return <Suspense fallback={null}><ReceptionPageInner /></Suspense>
 }
-

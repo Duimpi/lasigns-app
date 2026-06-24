@@ -28,20 +28,89 @@ const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const VAT_RATE = 15
 const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
 const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
+const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
+const DELIVERY_DELIVERED_TAG = '[LA_DELIVERY_DELIVERED]'
+const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
+const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
+
+const FULFILLMENT_TAGS = [
+  COLLECTION_PENDING_TAG,
+  COLLECTION_COLLECTED_TAG,
+  DELIVERY_PENDING_TAG,
+  DELIVERY_DELIVERED_TAG,
+  COURIER_PENDING_TAG,
+  COURIER_COURIERED_TAG,
+]
+
+function tagValue(notes: string | null | undefined, key: string) {
+  const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
+  if (!match?.[1]) return ''
+  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+}
+
+function makeTag(key: string, value?: string | null) {
+  const clean = String(value || '').trim()
+  return clean ? '[LA_' + key + ':' + encodeURIComponent(clean) + ']' : ''
+}
 
 function stripCollectionTags(notes?: string | null) {
-  return String(notes || '')
-    .replace(COLLECTION_PENDING_TAG, '')
-    .replace(COLLECTION_COLLECTED_TAG, '')
-    .replace(/Collected on .+$/m, '')
-    .trim()
+  let clean = String(notes || '')
+  FULFILLMENT_TAGS.forEach(tag => { clean = clean.replaceAll(tag, '') })
+  clean = clean
+    .replace(/\[LA_DELIVERY_(NAME|NUMBER|ADDRESS):[^\]]*\]/gi, '')
+    .replace(/\[LA_COURIER_(COMPANY|ADDRESS|CONTACT|PAYMENT):[^\]]*\]/gi, '')
+    .replace(/(Collected|Delivered|Couriered) on .+$/gm, '')
+  return clean.trim()
 }
 
-function withCollectionTag(notes: string | undefined, forCollection: boolean) {
+function getFulfillmentDetails(notes?: string | null) {
+  const text = String(notes || '')
+  const method = text.includes(DELIVERY_PENDING_TAG) || text.includes(DELIVERY_DELIVERED_TAG)
+    ? 'delivery'
+    : text.includes(COURIER_PENDING_TAG) || text.includes(COURIER_COURIERED_TAG)
+      ? 'courier'
+      : text.includes(COLLECTION_PENDING_TAG) || text.includes(COLLECTION_COLLECTED_TAG)
+        ? 'collection'
+        : 'none'
+
+  return {
+    method,
+    delivery_name: tagValue(text, 'DELIVERY_NAME'),
+    delivery_number: tagValue(text, 'DELIVERY_NUMBER'),
+    delivery_address: tagValue(text, 'DELIVERY_ADDRESS'),
+    courier_company: tagValue(text, 'COURIER_COMPANY'),
+    courier_address: tagValue(text, 'COURIER_ADDRESS'),
+    courier_contact_person: tagValue(text, 'COURIER_CONTACT'),
+    courier_payment: tagValue(text, 'COURIER_PAYMENT') || 'pay_on_delivery',
+  }
+}
+
+function withFulfillmentTags(notes: string | undefined, data: JobFormData) {
   const clean = stripCollectionTags(notes)
-  return [clean, forCollection ? COLLECTION_PENDING_TAG : ''].filter(Boolean).join('\n')
-}
+  const method = data.fulfillment_method || (data.for_collection ? 'collection' : 'none')
+  const tags: string[] = []
 
+  if (method === 'collection') tags.push(COLLECTION_PENDING_TAG)
+  if (method === 'delivery') {
+    tags.push(
+      DELIVERY_PENDING_TAG,
+      makeTag('DELIVERY_NAME', data.delivery_name),
+      makeTag('DELIVERY_NUMBER', data.delivery_number),
+      makeTag('DELIVERY_ADDRESS', data.delivery_address),
+    )
+  }
+  if (method === 'courier') {
+    tags.push(
+      COURIER_PENDING_TAG,
+      makeTag('COURIER_COMPANY', data.courier_company),
+      makeTag('COURIER_ADDRESS', data.courier_address),
+      makeTag('COURIER_CONTACT', data.courier_contact_person),
+      makeTag('COURIER_PAYMENT', data.courier_payment),
+    )
+  }
+
+  return [clean, ...tags.filter(Boolean)].filter(Boolean).join('\n')
+}
 const lineItemSchema = z.object({
   description: z.string().default(''),
   quantity: z.coerce.number().default(1),
@@ -64,6 +133,14 @@ const jobSchema = z.object({
   linked_quote_id: z.string().optional(),
   date_completed: z.string().optional().default(''),
   for_collection: z.boolean().default(false),
+  fulfillment_method: z.enum(['none', 'collection', 'delivery', 'courier']).default('none'),
+  delivery_name: z.string().optional().default(''),
+  delivery_number: z.string().optional().default(''),
+  delivery_address: z.string().optional().default(''),
+  courier_company: z.string().optional().default(''),
+  courier_address: z.string().optional().default(''),
+  courier_contact_person: z.string().optional().default(''),
+  courier_payment: z.enum(['pay_on_delivery', 'we_pay']).default('pay_on_delivery'),
   items: z.array(lineItemSchema),
 })
 
@@ -105,13 +182,16 @@ function JobCardsPageInner() {
     defaultValues: {
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', date_completed: '', for_collection: false,
+      due_date: '', date_completed: '', for_collection: false, fulfillment_method: 'none',
+      delivery_name: '', delivery_number: '', delivery_address: '',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
 
   const { fields: itemFields, append: addItem, remove: removeItem } = useFieldArray({ control, name: 'items' })
   const watchItems = watch('items')
+  const fulfillmentMethod = watch('fulfillment_method')
 
   const subtotal = watchItems?.reduce((sum, item) => {
     const w = parseFloat(item.width || '0') / 1000
@@ -212,7 +292,9 @@ function JobCardsPageInner() {
     reset({
       title: '', description: '', notes: '', client_name: '',
       status: 'pending', priority: 'normal', assigned_worker: '',
-      due_date: '', date_completed: '', for_collection: false,
+      due_date: '', date_completed: '', for_collection: false, fulfillment_method: 'none',
+      delivery_name: '', delivery_number: '', delivery_address: '',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -222,6 +304,7 @@ function JobCardsPageInner() {
   function openEdit(job: JobWithItems) {
     setEditingJob(job)
     loadComments(job.id)
+    const fulfillment = getFulfillmentDetails(job.notes)
     reset({
       title: job.title,
       description: job.description || '',
@@ -234,7 +317,15 @@ function JobCardsPageInner() {
       due_date: job.due_date || '',
       linked_quote_id: job.linked_quote_id || undefined,
       date_completed: job.date_completed || '',
-      for_collection: job.collection_status === 'pending' || String(job.notes || '').includes(COLLECTION_PENDING_TAG),
+      for_collection: fulfillment.method === 'collection',
+      fulfillment_method: fulfillment.method as JobFormData['fulfillment_method'],
+      delivery_name: fulfillment.delivery_name,
+      delivery_number: fulfillment.delivery_number,
+      delivery_address: fulfillment.delivery_address,
+      courier_company: fulfillment.courier_company,
+      courier_address: fulfillment.courier_address,
+      courier_contact_person: fulfillment.courier_contact_person,
+      courier_payment: fulfillment.courier_payment as JobFormData['courier_payment'],
       items: job.items.length > 0
         ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => {
             const parts = (i.size || '').split('x')
@@ -278,7 +369,7 @@ function JobCardsPageInner() {
       const payload: Record<string, unknown> = {
         title: data.title,
         description: data.description || null,
-        notes: withCollectionTag(data.notes, data.for_collection) || null,
+        notes: withFulfillmentTags(data.notes, data) || null,
         client_id: client?.id || null,
         client_name: client?.name || data.client_name || null,
         status: data.status,
@@ -665,10 +756,50 @@ function JobCardsPageInner() {
                 </div>
 
                 <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
-                <label className="flex items-center gap-2 text-sm text-text-secondary">
-                  <input {...register('for_collection')} type="checkbox" className="accent-accent" />
-                  Client will collect this job
-                </label>
+                <div className="space-y-3">
+                  <label className="label">Reception</label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                      <input {...register('fulfillment_method')} type="radio" value="collection" className="accent-accent" onChange={() => setValue('for_collection', true)} />
+                      Client will collect this job
+                    </label>
+                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                      <input {...register('fulfillment_method')} type="radio" value="delivery" className="accent-accent" onChange={() => setValue('for_collection', false)} />
+                      Delivery
+                    </label>
+                    <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                      <input {...register('fulfillment_method')} type="radio" value="courier" className="accent-accent" onChange={() => setValue('for_collection', false)} />
+                      Courier
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-text-muted">
+                    <input {...register('fulfillment_method')} type="radio" value="none" className="accent-accent" onChange={() => setValue('for_collection', false)} />
+                    No reception action
+                  </label>
+                  {fulfillmentMethod === 'delivery' && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div><label className="label">Delivery Client Name</label><input {...register('delivery_name')} className="input" /></div>
+                      <div><label className="label">Delivery Number</label><input {...register('delivery_number')} className="input" /></div>
+                      <div><label className="label">Delivery Address</label><input {...register('delivery_address')} className="input" /></div>
+                    </div>
+                  )}
+                  {fulfillmentMethod === 'courier' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div><label className="label">Courier Company</label><input {...register('courier_company')} className="input" /></div>
+                        <div><label className="label">Address</label><input {...register('courier_address')} className="input" /></div>
+                        <div><label className="label">Contact Person</label><input {...register('courier_contact_person')} className="input" /></div>
+                      </div>
+                      <div>
+                        <label className="label">Courier Payment</label>
+                        <select {...register('courier_payment')} className="input max-w-xs">
+                          <option value="pay_on_delivery">Pay on Delivery</option>
+                          <option value="we_pay">We pay</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
               </div>
