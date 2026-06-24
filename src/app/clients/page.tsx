@@ -57,7 +57,7 @@ export default function ClientsPage() {
   const [isImportOpen, setIsImportOpen] = useState(false)
   const importFileRef = useRef<HTMLInputElement>(null)
 
-  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<ClientFormData>({
+  const { register, control, handleSubmit, reset, setValue, formState: { errors } } = useForm<ClientFormData>({
     resolver: zodResolver(clientSchema),
     defaultValues: {
       name: '', company: '', address: '', vat_number: '', notes: '',
@@ -151,25 +151,51 @@ export default function ClientsPage() {
     setIsFormOpen(true)
   }
 
-  function openEdit(client: ClientWithContact) {
-    setEditingClient(client)
-    const phones = client.phones.length > 0
-      ? client.phones.map(p => ({ phone: p.phone || '', label: p.label || '', is_primary: p.is_primary }))
+  async function openEdit(client: ClientWithContact) {
+    const { data, error } = await supabase
+      .from('clients')
+      .select(`
+        *,
+        phones:client_phones(*),
+        emails:client_emails(*)
+      `)
+      .eq('id', client.id)
+      .single()
+
+    if (error) {
+      toast.error('Failed to load client details')
+      return
+    }
+
+    const freshClient = (data || client) as ClientWithContact
+    setEditingClient(freshClient)
+    const phones = freshClient.phones.length > 0
+      ? freshClient.phones.map(p => ({ phone: p.phone || '', label: p.label || '', is_primary: p.is_primary }))
       : [{ phone: '', label: '', is_primary: true }]
-    const emails = client.emails.length > 0
-      ? client.emails.map(e => ({ email: e.email || '', label: e.label || '', is_primary: e.is_primary }))
+    const emails = freshClient.emails.length > 0
+      ? freshClient.emails.map(e => ({ email: e.email || '', label: e.label || '', is_primary: e.is_primary }))
       : [{ email: '', label: '', is_primary: true }]
     reset({
-      name: client.name,
-      company: client.company || '',
-      address: client.address || '',
-      vat_number: client.vat_number || '',
-      notes: client.notes || '',
+      name: freshClient.name,
+      company: freshClient.company || '',
+      address: freshClient.address || '',
+      vat_number: freshClient.vat_number || '',
+      notes: freshClient.notes || '',
       phones,
       emails,
     })
     replacePhones(phones)
     replaceEmails(emails)
+    phones.forEach((phone, index) => {
+      setValue(`phones.${index}.phone`, phone.phone)
+      setValue(`phones.${index}.label`, phone.label)
+      setValue(`phones.${index}.is_primary`, phone.is_primary)
+    })
+    emails.forEach((email, index) => {
+      setValue(`emails.${index}.email`, email.email)
+      setValue(`emails.${index}.label`, email.label)
+      setValue(`emails.${index}.is_primary`, email.is_primary)
+    })
     setIsFormOpen(true)
   }
 
@@ -514,11 +540,13 @@ export default function ClientsPage() {
                 <div key={field.id} className="flex gap-2">
                   <input
                     {...register(`phones.${i}.phone`)}
+                    defaultValue={(field as any).phone || ''}
                     className="input flex-1"
                     placeholder="+264 81 000 0000"
                   />
                   <input
                     {...register(`phones.${i}.label`)}
+                    defaultValue={(field as any).label || ''}
                     className="input w-28"
                     placeholder="Mobile"
                   />
@@ -549,12 +577,14 @@ export default function ClientsPage() {
                 <div key={field.id} className="flex gap-2">
                   <input
                     {...register(`emails.${i}.email`)}
+                    defaultValue={(field as any).email || ''}
                     type="email"
                     className="input flex-1"
                     placeholder="john@example.com"
                   />
                   <input
                     {...register(`emails.${i}.label`)}
+                    defaultValue={(field as any).label || ''}
                     className="input w-28"
                     placeholder="Work"
                   />
