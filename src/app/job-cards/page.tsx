@@ -497,9 +497,18 @@ function JobCardsPageInner() {
     } finally { setIsSendingComment(false) }
   }
 
+  function jobCardPdfFilename(job: JobWithItems) {
+    const clientPart = String(job.client_name || job.title || '')
+      .replace(/[<>:"/\\|?*]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[. ]+$/g, '')
+    return `${job.job_number}${clientPart ? `-${clientPart}` : ''}.pdf`
+  }
+
   function downloadPDF(job: JobWithItems) {
     const doc = generateJobCardPDF(job as any)
-    doc.save(`${job.job_number}.pdf`)
+    doc.save(jobCardPdfFilename(job))
     toast.success('Job card downloaded')
   }
 
@@ -521,7 +530,7 @@ function JobCardsPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pdfBase64,
-          fileName: `${job.job_number}.pdf`,
+          fileName: jobCardPdfFilename(job),
           subject: `Job Card ${job.job_number} — ${job.client_name || job.title}`,
           clientName: job.client_name || job.title,
           type: 'jobcard',
