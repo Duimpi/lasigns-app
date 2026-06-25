@@ -299,6 +299,17 @@ function ReceptionPageInner() {
       .trim()
   }
 
+  function quotePaidAmount(quote: QuotePaymentItem) {
+    return Number(quote.amount_paid || getNoteValue(quote.notes, 'RECEPTION_PAYMENT_AMOUNT') || 0)
+  }
+
+  function quotePaymentStatus(quote: QuotePaymentItem) {
+    if (quote.payment_status) return quote.payment_status
+    const paid = quotePaidAmount(quote)
+    if (paid <= 0) return ''
+    return paid >= Number(quote.total || 0) ? 'paid' : 'partial'
+  }
+
   async function approveQuoteFromReception(quote: QuotePaymentItem) {
     const comment = window.prompt('Comment for the quote team (optional):') || ''
     const approvedAt = new Date().toISOString()
@@ -323,28 +334,38 @@ function ReceptionPageInner() {
     setIsSaving(true)
     try {
       const amount = parseFloat(quotePayAmount)
-      const previousPaid = Number(quotePaymentTarget.amount_paid || 0)
+      const previousPaid = quotePaidAmount(quotePaymentTarget)
       const totalPaid = previousPaid + amount
       const fullyPaid = totalPaid >= Number(quotePaymentTarget.total || 0)
       const paidAt = new Date().toISOString()
       const tags = [
         RECEPTION_APPROVED_TAG,
-        makeNoteTag('RECEPTION_PAYMENT_AMOUNT', amount.toFixed(2)),
+        makeNoteTag('RECEPTION_PAYMENT_AMOUNT', totalPaid.toFixed(2)),
         makeNoteTag('RECEPTION_PAYMENT_METHOD', quotePayMethod),
         makeNoteTag('RECEPTION_PAYMENT_AT', paidAt),
         makeNoteTag('RECEPTION_PAYMENT_BY', profile?.full_name || 'Reception'),
         makeNoteTag('RECEPTION_PAYMENT_NOTE', quotePayNote),
       ].filter(Boolean).join('\n')
       const nextNotes = [stripReceptionQuoteTags(quotePaymentTarget.notes), tags].filter(Boolean).join('\n')
-      const { error } = await supabase.from('quotes').update({
-        status: quotePaymentTarget.status === 'draft' || quotePaymentTarget.status === 'sent' ? 'approved' : quotePaymentTarget.status,
+      const status = quotePaymentTarget.status === 'draft' || quotePaymentTarget.status === 'sent' ? 'approved' : quotePaymentTarget.status
+      const paymentPayload = {
+        status,
         amount_paid: totalPaid,
         payment_status: fullyPaid ? 'paid' : 'partial',
         payment_method: quotePayMethod,
         payment_date: paidAt,
         notes: nextNotes,
-      }).eq('id', quotePaymentTarget.id)
-      if (error) throw error
+      }
+      const { error } = await supabase.from('quotes').update(paymentPayload).eq('id', quotePaymentTarget.id)
+      if (error) {
+        const schemaMessage = String(error.message || '').toLowerCase()
+        if (!schemaMessage.includes('schema cache') && !schemaMessage.includes('column')) throw error
+        const { error: fallbackError } = await supabase.from('quotes').update({
+          status,
+          notes: nextNotes,
+        }).eq('id', quotePaymentTarget.id)
+        if (fallbackError) throw fallbackError
+      }
 
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
       if (admins && profile) {
@@ -860,9 +881,10 @@ function ReceptionPageInner() {
               const ql = search.toLowerCase()
               return !ql || q.quote_number.toLowerCase().includes(ql) || String(q.client_name || '').toLowerCase().includes(ql) || String(q.company || '').toLowerCase().includes(ql)
             }).map(quote => {
-              const paid = Number(quote.amount_paid || 0)
+              const paid = quotePaidAmount(quote)
               const outstanding = Math.max(Number(quote.total || 0) - paid, 0)
-              const isPaid = String(quote.payment_status || '').toLowerCase() === 'paid' || outstanding <= 0
+              const paymentStatus = quotePaymentStatus(quote)
+              const isPaid = String(paymentStatus || '').toLowerCase() === 'paid' || outstanding <= 0
               const itemsPreview = (quote.items || []).slice(0, 3)
               return (
                 <div key={quote.id} className="card p-4 border-l-4 border-accent">
@@ -871,7 +893,7 @@ function ReceptionPageInner() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-accent">{quote.quote_number}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">{quote.status}</span>
-                        {quote.payment_status && <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${isPaid ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>{quote.payment_status}</span>}
+                        {paymentStatus && <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${isPaid ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>{paymentStatus}</span>}
                       </div>
                       <div>
                         <p className="font-semibold text-text-primary">{quote.client_name || 'Unknown client'}</p>
@@ -1193,7 +1215,7 @@ function ReceptionPageInner() {
             <div className="p-4 space-y-4">
               <div className="bg-bg-elevated rounded-xl p-3 flex justify-between">
                 <span className="text-sm text-text-muted">Outstanding</span>
-                <span className="font-bold text-amber-400">{formatCurrency(Math.max((quotePaymentTarget.total || 0) - (quotePaymentTarget.amount_paid || 0), 0))}</span>
+                <span className="font-bold text-amber-400">{formatCurrency(Math.max((quotePaymentTarget.total || 0) - quotePaidAmount(quotePaymentTarget), 0))}</span>
               </div>
               <div>
                 <label className="label">Amount Received</label>
