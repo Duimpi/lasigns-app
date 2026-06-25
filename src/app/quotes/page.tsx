@@ -620,7 +620,7 @@ function QuotesPageInner() {
   }
 
   function downloadPDF(quote: QuoteWithItems) {
-    const doc = generateQuotePDF(quoteForPrint(quote))
+    const doc = generateQuoteJobCardPDF(quoteForPrint(quote))
     doc.save(`${quote.quote_number}.pdf`)
     toast.success('PDF downloaded')
   }
