@@ -487,7 +487,7 @@ function RetailPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
-      toast.success('Email sent to admin@lasigns.com.na ✅')
+      toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
       toast.error(`Email failed: ${err.message}`)
