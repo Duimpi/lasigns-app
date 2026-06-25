@@ -190,13 +190,13 @@ function ReceptionPageInner() {
 
       const { data: activeQuotes } = await supabase
         .from('quotes')
-        .select('id, quote_number, client_id, client_name, client_email, client_address, status, subtotal, vat_amount, total, amount_paid, payment_status, payment_method, notes, created_at')
-        .eq('is_retail', false)
-        .neq('status', 'completed')
-        .neq('status', 'cancelled')
+        .select('*')
         .order('created_at', { ascending: false })
 
-      const quoteRows = (activeQuotes || []) as any[]
+      const quoteRows = ((activeQuotes || []) as any[]).filter((q: any) => {
+        const status = String(q.status || '').toLowerCase()
+        return q.is_retail === false && status !== 'completed' && status !== 'cancelled'
+      })
       const quoteIds = quoteRows.map(q => q.id)
       let itemsByQuote: Record<string, any[]> = {}
       if (quoteIds.length > 0) {
