@@ -36,6 +36,8 @@ const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
 const DELIVERY_DELIVERED_TAG = '[LA_DELIVERY_DELIVERED]'
 const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
 const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
+const INSTALL_PENDING_TAG = '[LA_INSTALL_PENDING]'
+const INSTALL_DONE_TAG = '[LA_INSTALL_DONE]'
 const FULFILLMENT_TAGS = [
   COLLECTION_PENDING_TAG,
   COLLECTION_COLLECTED_TAG,
@@ -43,6 +45,8 @@ const FULFILLMENT_TAGS = [
   DELIVERY_DELIVERED_TAG,
   COURIER_PENDING_TAG,
   COURIER_COURIERED_TAG,
+  INSTALL_PENDING_TAG,
+  INSTALL_DONE_TAG,
 ]
 
 const lineItemSchema = z.object({
@@ -66,7 +70,7 @@ const quoteSchema = z.object({
   valid_until: z.string().optional(),
   assigned_worker: z.string().optional().default(''),
   discount: z.coerce.number().default(0),
-  fulfillment_method: z.enum(['none', 'collection', 'delivery', 'courier']).default('none'),
+  fulfillment_method: z.enum(['none', 'collection', 'delivery', 'courier', 'installation']).default('none'),
   delivery_name: z.string().optional().default(''),
   delivery_number: z.string().optional().default(''),
   delivery_address: z.string().optional().default(''),
@@ -74,6 +78,11 @@ const quoteSchema = z.object({
   courier_address: z.string().optional().default(''),
   courier_contact_person: z.string().optional().default(''),
   courier_payment: z.enum(['pay_on_delivery', 'we_pay']).default('pay_on_delivery'),
+  install_address: z.string().optional().default(''),
+  install_contact_person: z.string().optional().default(''),
+  install_contact_number: z.string().optional().default(''),
+  install_preferred_date: z.string().optional().default(''),
+  install_notes: z.string().optional().default(''),
   items: z.array(lineItemSchema),
 })
 
@@ -116,13 +125,16 @@ function stripFulfillmentTags(notes?: string | null) {
   clean = clean
     .replace(/\[LA_DELIVERY_(NAME|NUMBER|ADDRESS):[^\]]*\]/gi, '')
     .replace(/\[LA_COURIER_(COMPANY|ADDRESS|CONTACT|PAYMENT):[^\]]*\]/gi, '')
-    .replace(/(Collected|Delivered|Couriered) on .+$/gm, '')
+    .replace(/\[LA_INSTALL_(ADDRESS|CONTACT|NUMBER|DATE|NOTES):[^\]]*\]/gi, '')
+    .replace(/(Collected|Delivered|Couriered|Installed \/ Applied) on .+$/gm, '')
   return clean.trim()
 }
 
 function getFulfillmentDetails(notes?: string | null) {
   const text = String(notes || '')
-  const method = text.includes(DELIVERY_PENDING_TAG) || text.includes(DELIVERY_DELIVERED_TAG)
+  const method = text.includes(INSTALL_PENDING_TAG) || text.includes(INSTALL_DONE_TAG)
+    ? 'installation'
+    : text.includes(DELIVERY_PENDING_TAG) || text.includes(DELIVERY_DELIVERED_TAG)
     ? 'delivery'
     : text.includes(COURIER_PENDING_TAG) || text.includes(COURIER_COURIERED_TAG)
       ? 'courier'
@@ -139,6 +151,11 @@ function getFulfillmentDetails(notes?: string | null) {
     courier_address: tagValue(text, 'COURIER_ADDRESS'),
     courier_contact_person: tagValue(text, 'COURIER_CONTACT'),
     courier_payment: tagValue(text, 'COURIER_PAYMENT') || 'pay_on_delivery',
+    install_address: tagValue(text, 'INSTALL_ADDRESS'),
+    install_contact_person: tagValue(text, 'INSTALL_CONTACT'),
+    install_contact_number: tagValue(text, 'INSTALL_NUMBER'),
+    install_preferred_date: tagValue(text, 'INSTALL_DATE'),
+    install_notes: tagValue(text, 'INSTALL_NOTES'),
   }
 }
 
@@ -162,6 +179,16 @@ function fulfillmentTagsForQuote(data: QuoteFormData) {
       makeTag('COURIER_ADDRESS', data.courier_address),
       makeTag('COURIER_CONTACT', data.courier_contact_person),
       makeTag('COURIER_PAYMENT', data.courier_payment),
+    )
+  }
+  if (method === 'installation') {
+    tags.push(
+      INSTALL_PENDING_TAG,
+      makeTag('INSTALL_ADDRESS', data.install_address),
+      makeTag('INSTALL_CONTACT', data.install_contact_person),
+      makeTag('INSTALL_NUMBER', data.install_contact_number),
+      makeTag('INSTALL_DATE', data.install_preferred_date),
+      makeTag('INSTALL_NOTES', data.install_notes),
     )
   }
 
@@ -239,6 +266,7 @@ function QuotesPageInner() {
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
       courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
+      install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
@@ -327,6 +355,7 @@ function QuotesPageInner() {
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
       courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
+      install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
@@ -356,6 +385,11 @@ function QuotesPageInner() {
       courier_address: fulfillment.courier_address,
       courier_contact_person: fulfillment.courier_contact_person,
       courier_payment: fulfillment.courier_payment as QuoteFormData['courier_payment'],
+      install_address: fulfillment.install_address,
+      install_contact_person: fulfillment.install_contact_person,
+      install_contact_number: fulfillment.install_contact_number,
+      install_preferred_date: fulfillment.install_preferred_date,
+      install_notes: fulfillment.install_notes,
       items: quote.items.length > 0
         ? quote.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
             description: i.description,
@@ -484,11 +518,55 @@ function QuotesPageInner() {
 
   async function handleComplete(quote: QuoteWithItems) {
     if (!confirm(`Mark ${quote.quote_number} as complete?`)) return
+    const { data: freshQuote } = await supabase
+      .from('quotes')
+      .select('id, quote_number, client_name, client_address, notes')
+      .eq('id', quote.id)
+      .eq('is_retail', false)
+      .single()
+
     const { error } = await supabase.from('quotes').update({
       status: 'completed',
     }).eq('id', quote.id).eq('is_retail', false)
     if (error) { toast.error(`Complete failed: ${error.message}`); return }
-    toast.success('Quote completed')
+
+    const completionNotes = String((freshQuote as any)?.notes || quote.notes || '')
+    if (completionNotes.includes(INSTALL_PENDING_TAG) && profile) {
+      const { data: wilvertProfiles } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .ilike('full_name', '%Wilvert%')
+        .limit(5)
+
+      if (wilvertProfiles?.length) {
+        const address = tagValue(completionNotes, 'INSTALL_ADDRESS') || (freshQuote as any)?.client_address || quote.client_address || ''
+        const contact = tagValue(completionNotes, 'INSTALL_CONTACT') || (freshQuote as any)?.client_name || quote.client_name || ''
+        const number = tagValue(completionNotes, 'INSTALL_NUMBER') || cleanClientNumber(quote.client_phone || getQuoteClientNumber(completionNotes))
+        const preferredDate = tagValue(completionNotes, 'INSTALL_DATE')
+        const installNotes = tagValue(completionNotes, 'INSTALL_NOTES')
+        const message = [
+          `${(freshQuote as any)?.quote_number || quote.quote_number} - ${(freshQuote as any)?.client_name || quote.client_name}`,
+          address ? `Address: ${address}` : '',
+          contact ? `Contact: ${contact}` : '',
+          number ? `Number: ${number}` : '',
+          preferredDate ? `Preferred date: ${preferredDate}` : '',
+          installNotes ? `Notes: ${installNotes}` : '',
+        ].filter(Boolean).join('\n')
+
+        await supabase.from('notifications').insert(wilvertProfiles.map((worker: any) => ({
+          recipient_id: worker.id,
+          sender_id: profile.id,
+          type: 'installation_ready',
+          title: 'Installation / Application Ready',
+          message,
+        })))
+        toast.success('Quote completed and Wilvert notified')
+      } else {
+        toast.success('Quote completed. Wilvert profile was not found for notification.')
+      }
+    } else {
+      toast.success('Quote completed')
+    }
     loadQuotes()
   }
   async function handleToggleLock(quote: QuoteWithItems) {
@@ -781,7 +859,7 @@ function QuotesPageInner() {
 
           <div className="space-y-3">
             <label className="label">Reception</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
                 <input {...register('fulfillment_method')} type="radio" value="collection" className="accent-accent" />
                 Client will collect this job
@@ -793,6 +871,10 @@ function QuotesPageInner() {
               <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
                 <input {...register('fulfillment_method')} type="radio" value="courier" className="accent-accent" />
                 Courier
+              </label>
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
+                <input {...register('fulfillment_method')} type="radio" value="installation" className="accent-accent" />
+                To Install / Applicate
               </label>
             </div>
             <label className="flex items-center gap-2 text-sm text-text-muted">
@@ -820,6 +902,18 @@ function QuotesPageInner() {
                     <option value="we_pay">We pay</option>
                   </select>
                 </div>
+              </div>
+            )}
+            {fulfillmentMethod === 'installation' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div><label className="label">Installation Address</label><input {...register('install_address')} className="input" /></div>
+                  <div><label className="label">Contact Person</label><input {...register('install_contact_person')} className="input" /></div>
+                  <div><label className="label">Contact Number</label><input {...register('install_contact_number')} className="input" /></div>
+                  <div><label className="label">Preferred Date</label><input {...register('install_preferred_date')} type="date" className="input" /></div>
+                </div>
+                <div><label className="label">Installation Notes</label><textarea {...register('install_notes')} className="input min-h-[70px] resize-none" /></div>
+                <p className="text-xs text-text-muted">Wilvert will be notified when this quote is marked complete.</p>
               </div>
             )}
           </div>

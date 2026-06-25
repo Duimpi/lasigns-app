@@ -13,13 +13,15 @@ import {
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'collection' | 'delivery' | 'courier' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
+type Tab = 'collection' | 'delivery' | 'courier' | 'installation' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
 const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
 const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
 const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
 const DELIVERY_DELIVERED_TAG = '[LA_DELIVERY_DELIVERED]'
 const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
 const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
+const INSTALL_PENDING_TAG = '[LA_INSTALL_PENDING]'
+const INSTALL_DONE_TAG = '[LA_INSTALL_DONE]'
 
 interface PayableItem {
   id: string
@@ -57,6 +59,8 @@ function ReceptionPageInner() {
   const [deliveredItems, setDeliveredItems] = useState<CollectionItem[]>([])
   const [courierItems, setCourierItems] = useState<CollectionItem[]>([])
   const [courieredItems, setCourieredItems] = useState<CollectionItem[]>([])
+  const [installItems, setInstallItems] = useState<CollectionItem[]>([])
+  const [installedItems, setInstalledItems] = useState<CollectionItem[]>([])
   const [walkinList, setWalkinList] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -68,6 +72,7 @@ function ReceptionPageInner() {
   const [showCollected, setShowCollected] = useState(false)
   const [showDelivered, setShowDelivered] = useState(false)
   const [showCouriered, setShowCouriered] = useState(false)
+  const [showInstalled, setShowInstalled] = useState(false)
   const [paymentHistory, setPaymentHistory] = useState<any[]>([])
 
   // Walk-in
@@ -124,12 +129,19 @@ function ReceptionPageInner() {
         return notes.includes(COURIER_PENDING_TAG) && !notes.includes(COURIER_COURIERED_TAG)
       })
       const couriered = (collData || []).filter((j: any) => String(j.notes || '').includes(COURIER_COURIERED_TAG))
+      const installPending = (collData || []).filter((j: any) => {
+        const notes = String(j.notes || '')
+        return notes.includes(INSTALL_PENDING_TAG) && !notes.includes(INSTALL_DONE_TAG)
+      })
+      const installed = (collData || []).filter((j: any) => String(j.notes || '').includes(INSTALL_DONE_TAG))
       setCollectionItems(pending as CollectionItem[])
       setCollectedItems(collected as CollectionItem[])
       setDeliveryItems(deliveryPending as CollectionItem[])
       setDeliveredItems(delivered as CollectionItem[])
       setCourierItems(courierPending as CollectionItem[])
       setCourieredItems(couriered as CollectionItem[])
+      setInstallItems(installPending as CollectionItem[])
+      setInstalledItems(installed as CollectionItem[])
 
       // Outstanding payments: Reception only handles completed non-retail job cards.
       const { data: jobs } = await supabase
@@ -209,7 +221,7 @@ function ReceptionPageInner() {
     try { return decodeURIComponent(match[1]) } catch { return match[1] }
   }
 
-  async function markFulfillmentDone(item: CollectionItem, pendingTag: string, doneTag: string, label: 'Delivered' | 'Couriered') {
+  async function markFulfillmentDone(item: CollectionItem, pendingTag: string, doneTag: string, label: 'Delivered' | 'Couriered' | 'Installed / Applied') {
     const currentNotes = String(item.notes || '')
     const nextNotes = currentNotes.includes(pendingTag)
       ? currentNotes.replace(pendingTag, doneTag)
@@ -416,8 +428,8 @@ function ReceptionPageInner() {
             <p className="text-2xl font-bold text-blue-400">{collectionItems.length}</p>
           </div>
           <div className="card p-4">
-            <div className="flex items-center gap-2 mb-2"><PackageCheck className="w-4 h-4 text-emerald-400" /><span className="text-sm text-text-muted">Delivery/Courier</span></div>
-            <p className="text-2xl font-bold text-emerald-400">{deliveryItems.length + courierItems.length}</p>
+            <div className="flex items-center gap-2 mb-2"><PackageCheck className="w-4 h-4 text-emerald-400" /><span className="text-sm text-text-muted">Delivery/Courier/Install</span></div>
+            <p className="text-2xl font-bold text-emerald-400">{deliveryItems.length + courierItems.length + installItems.length}</p>
           </div>
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4 text-amber-400" /><span className="text-sm text-text-muted">Outstanding</span></div>
@@ -437,6 +449,7 @@ function ReceptionPageInner() {
             { key: 'collection', label: 'Collections', count: collectionItems.length },
             { key: 'delivery', label: 'Delivery', count: deliveryItems.length },
             { key: 'courier', label: 'Courier', count: courierItems.length },
+            { key: 'installation', label: 'Installation', count: installItems.length },
             { key: 'outstanding', label: 'Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
@@ -626,6 +639,56 @@ function ReceptionPageInner() {
                         <p className="text-xs text-text-muted">{item.title}</p>
                       </div>
                       <button onClick={() => deleteFulfillmentHistory(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* INSTALLATION TAB */}
+        {tab === 'installation' && (
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="card py-12 text-center text-text-muted">Loading...</div>
+            ) : installItems.length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No orders waiting for installation/application</div>
+            ) : installItems.map(item => (
+              <div key={item.id} className="card p-4 border-l-4 border-orange-500">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                    <p className="font-semibold text-text-primary mt-1">{getNoteValue(item.notes, 'INSTALL_CONTACT') || item.client_name || 'Unknown'}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'INSTALL_NUMBER')}</p>
+                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'INSTALL_ADDRESS')}</p>
+                    {getNoteValue(item.notes, 'INSTALL_DATE') && <p className="text-xs text-text-muted mt-1">Preferred: {getNoteValue(item.notes, 'INSTALL_DATE')}</p>}
+                    {getNoteValue(item.notes, 'INSTALL_NOTES') && <p className="text-xs text-text-muted mt-1">{getNoteValue(item.notes, 'INSTALL_NOTES')}</p>}
+                    <p className="text-xs text-text-muted mt-1">Applicator: Wilvert</p>
+                  </div>
+                  <button onClick={() => markFulfillmentDone(item, INSTALL_PENDING_TAG, INSTALL_DONE_TAG, 'Installed / Applied')} className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-semibold text-sm transition-colors">
+                    <CheckCheck className="w-4 h-4" /> Installed / Applied
+                  </button>
+                </div>
+              </div>
+            ))}
+            {installedItems.length > 0 && (
+              <div className="mt-4">
+                <button onClick={() => setShowInstalled(!showInstalled)} className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1 mb-3">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {showInstalled ? 'Hide' : 'Show'} installed/applied ({installedItems.length})
+                </button>
+                {showInstalled && installedItems.map(item => (
+                  <div key={item.id} className="card p-4 border-l-4 border-orange-500 opacity-60 mb-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-xs text-accent">{item.job_number}</span>
+                        <p className="font-semibold text-text-primary">{getNoteValue(item.notes, 'INSTALL_CONTACT') || item.client_name || 'Unknown'}</p>
+                        <p className="text-xs text-text-muted">{item.title}</p>
+                      </div>
+                      <button onClick={() => deleteFulfillmentHistory(item, INSTALL_PENDING_TAG, INSTALL_DONE_TAG, 'Installed / Applied')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
                         <Trash2 className="w-3.5 h-3.5" /> Delete
                       </button>
                     </div>
