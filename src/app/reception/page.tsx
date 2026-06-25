@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 
 type PaymentMethod = 'cash' | 'card' | 'eft'
-type Tab = 'collection' | 'delivery' | 'courier' | 'installation' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
+type Tab = 'collection' | 'delivery' | 'courier' | 'installation' | 'quote_payments' | 'outstanding' | 'walkin' | 'walkin_list' | 'history'
 const COLLECTION_PENDING_TAG = '[LA_COLLECTION_PENDING]'
 const COLLECTION_COLLECTED_TAG = '[LA_COLLECTION_COLLECTED]'
 const DELIVERY_PENDING_TAG = '[LA_DELIVERY_PENDING]'
@@ -22,6 +22,7 @@ const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
 const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
 const INSTALL_PENDING_TAG = '[LA_INSTALL_PENDING]'
 const INSTALL_DONE_TAG = '[LA_INSTALL_DONE]'
+const RECEPTION_APPROVED_TAG = '[LA_RECEPTION_APPROVED]'
 
 interface PayableItem {
   id: string
@@ -49,6 +50,26 @@ interface CollectionItem {
   source_table?: 'quotes' | 'job_cards'
 }
 
+interface QuotePaymentItem {
+  id: string
+  quote_number: string
+  client_id?: string | null
+  client_name?: string | null
+  client_email?: string | null
+  client_address?: string | null
+  company?: string | null
+  status: string
+  subtotal: number
+  vat_amount: number
+  total: number
+  amount_paid?: number | null
+  payment_status?: string | null
+  payment_method?: string | null
+  notes?: string | null
+  created_at: string
+  items?: { description: string; quantity: number; line_total: number; sort_order?: number }[]
+}
+
 function ReceptionPageInner() {
   const { profile } = useAuthStore()
   const [tab, setTab] = useState<Tab>('collection')
@@ -61,6 +82,7 @@ function ReceptionPageInner() {
   const [courieredItems, setCourieredItems] = useState<CollectionItem[]>([])
   const [installItems, setInstallItems] = useState<CollectionItem[]>([])
   const [installedItems, setInstalledItems] = useState<CollectionItem[]>([])
+  const [quotePaymentItems, setQuotePaymentItems] = useState<QuotePaymentItem[]>([])
   const [walkinList, setWalkinList] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -88,6 +110,10 @@ function ReceptionPageInner() {
   const [editAmount, setEditAmount] = useState('')
   const [editNote, setEditNote] = useState('')
   const [editMethod, setEditMethod] = useState<PaymentMethod>('cash')
+  const [quotePaymentTarget, setQuotePaymentTarget] = useState<QuotePaymentItem | null>(null)
+  const [quotePayAmount, setQuotePayAmount] = useState('')
+  const [quotePayMethod, setQuotePayMethod] = useState<PaymentMethod>('cash')
+  const [quotePayNote, setQuotePayNote] = useState('')
 
   useEffect(() => { loadData() }, [])
 
@@ -161,6 +187,30 @@ function ReceptionPageInner() {
           })
           .map((j: any) => ({ ...j, type: 'job' as const, number: j.job_number }))
       )
+
+      const { data: activeQuotes } = await supabase
+        .from('quotes')
+        .select('id, quote_number, client_id, client_name, client_email, client_address, status, subtotal, vat_amount, total, amount_paid, payment_status, payment_method, notes, created_at, items:quote_items(description, quantity, line_total, sort_order)')
+        .eq('is_retail', false)
+        .neq('status', 'completed')
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+
+      const clientIds = Array.from(new Set(((activeQuotes || []) as any[]).map(q => q.client_id).filter(Boolean)))
+      let companyByClient: Record<string, string> = {}
+      if (clientIds.length > 0) {
+        const { data: quoteClients } = await supabase
+          .from('clients')
+          .select('id, company')
+          .in('id', clientIds)
+        companyByClient = Object.fromEntries(((quoteClients || []) as any[]).map(c => [c.id, c.company || '']))
+      }
+      setQuotePaymentItems(((activeQuotes || []) as any[]).map(q => ({
+        ...q,
+        company: q.client_id ? companyByClient[q.client_id] || null : null,
+        items: (q.items || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)),
+      })))
+
       // Walk-in list
       const { data: wiData } = await supabase
         .from('job_cards')
@@ -219,6 +269,83 @@ function ReceptionPageInner() {
     const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
     if (!match?.[1]) return ''
     try { return decodeURIComponent(match[1]) } catch { return match[1] }
+  }
+
+  function makeNoteTag(key: string, value?: string | null) {
+    const clean = String(value || '').trim()
+    return clean ? '[LA_' + key + ':' + encodeURIComponent(clean) + ']' : ''
+  }
+
+  function stripReceptionQuoteTags(notes?: string | null) {
+    return String(notes || '')
+      .replace(RECEPTION_APPROVED_TAG, '')
+      .replace(/\[LA_RECEPTION_(APPROVED_AT|APPROVED_BY|APPROVED_NOTE|PAYMENT_NOTE|PAYMENT_AMOUNT|PAYMENT_METHOD|PAYMENT_AT|PAYMENT_BY):[^\]]*\]/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  async function approveQuoteFromReception(quote: QuotePaymentItem) {
+    const comment = window.prompt('Comment for the quote team (optional):') || ''
+    const approvedAt = new Date().toISOString()
+    const tags = [
+      RECEPTION_APPROVED_TAG,
+      makeNoteTag('RECEPTION_APPROVED_AT', approvedAt),
+      makeNoteTag('RECEPTION_APPROVED_BY', profile?.full_name || 'Reception'),
+      makeNoteTag('RECEPTION_APPROVED_NOTE', comment),
+    ].filter(Boolean).join('\n')
+    const nextNotes = [stripReceptionQuoteTags(quote.notes), tags].filter(Boolean).join('\n')
+    const { error } = await supabase.from('quotes').update({
+      status: 'approved',
+      notes: nextNotes,
+    }).eq('id', quote.id)
+    if (error) { toast.error(`Approve failed: ${error.message}`); return }
+    toast.success('Quote marked approved')
+    loadData()
+  }
+
+  async function recordQuotePayment() {
+    if (!quotePaymentTarget || !quotePayAmount) return
+    setIsSaving(true)
+    try {
+      const amount = parseFloat(quotePayAmount)
+      const previousPaid = Number(quotePaymentTarget.amount_paid || 0)
+      const totalPaid = previousPaid + amount
+      const fullyPaid = totalPaid >= Number(quotePaymentTarget.total || 0)
+      const paidAt = new Date().toISOString()
+      const tags = [
+        RECEPTION_APPROVED_TAG,
+        makeNoteTag('RECEPTION_PAYMENT_AMOUNT', amount.toFixed(2)),
+        makeNoteTag('RECEPTION_PAYMENT_METHOD', quotePayMethod),
+        makeNoteTag('RECEPTION_PAYMENT_AT', paidAt),
+        makeNoteTag('RECEPTION_PAYMENT_BY', profile?.full_name || 'Reception'),
+        makeNoteTag('RECEPTION_PAYMENT_NOTE', quotePayNote),
+      ].filter(Boolean).join('\n')
+      const nextNotes = [stripReceptionQuoteTags(quotePaymentTarget.notes), tags].filter(Boolean).join('\n')
+      const { error } = await supabase.from('quotes').update({
+        status: quotePaymentTarget.status === 'draft' || quotePaymentTarget.status === 'sent' ? 'approved' : quotePaymentTarget.status,
+        amount_paid: totalPaid,
+        payment_status: fullyPaid ? 'paid' : 'partial',
+        payment_method: quotePayMethod,
+        payment_date: paidAt,
+        notes: nextNotes,
+      }).eq('id', quotePaymentTarget.id)
+      if (error) throw error
+
+      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin')
+      if (admins && profile) {
+        await supabase.from('notifications').insert(admins.map((a: any) => ({
+          recipient_id: a.id, sender_id: profile.id, type: 'quote_payment_received',
+          title: 'Quote Payment Received',
+          message: `${quotePaymentTarget.client_name || 'Client'} paid ${formatCurrency(amount)} (${quotePayMethod}) for ${quotePaymentTarget.quote_number}`,
+          entity_type: 'quote', entity_id: quotePaymentTarget.id,
+        })))
+      }
+
+      toast.success(fullyPaid ? 'Quote paid in full' : 'Quote partial payment recorded')
+      setQuotePaymentTarget(null); setQuotePayAmount(''); setQuotePayNote('')
+      loadData()
+    } catch (err: any) { toast.error(`Payment failed: ${err.message}`) }
+    finally { setIsSaving(false) }
   }
 
   async function markFulfillmentDone(item: CollectionItem, pendingTag: string, doneTag: string, label: 'Delivered' | 'Couriered' | 'Installed / Applied') {
@@ -450,6 +577,7 @@ function ReceptionPageInner() {
             { key: 'delivery', label: 'Delivery', count: deliveryItems.length },
             { key: 'courier', label: 'Courier', count: courierItems.length },
             { key: 'installation', label: 'Installation', count: installItems.length },
+            { key: 'quote_payments', label: 'Quote Payments', count: quotePaymentItems.length },
             { key: 'outstanding', label: 'Outstanding', count: filteredItems.length },
             { key: 'walkin', label: '+ Walk-in' },
             { key: 'walkin_list', label: 'Walk-in List', count: walkinList.length },
@@ -696,6 +824,76 @@ function ReceptionPageInner() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* QUOTE PAYMENTS TAB */}
+        {tab === 'quote_payments' && (
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <input value={search} onChange={e => setSearch(e.target.value)} className="input pl-9" placeholder="Search quote, client or company..." />
+            </div>
+            {isLoading ? (
+              <div className="card py-12 text-center text-text-muted">Loading...</div>
+            ) : quotePaymentItems.filter(q => {
+              const ql = search.toLowerCase()
+              return !ql || q.quote_number.toLowerCase().includes(ql) || String(q.client_name || '').toLowerCase().includes(ql) || String(q.company || '').toLowerCase().includes(ql)
+            }).length === 0 ? (
+              <div className="card py-12 text-center text-text-muted">No active quotes for reception payments</div>
+            ) : quotePaymentItems.filter(q => {
+              const ql = search.toLowerCase()
+              return !ql || q.quote_number.toLowerCase().includes(ql) || String(q.client_name || '').toLowerCase().includes(ql) || String(q.company || '').toLowerCase().includes(ql)
+            }).map(quote => {
+              const paid = Number(quote.amount_paid || 0)
+              const outstanding = Math.max(Number(quote.total || 0) - paid, 0)
+              const isPaid = String(quote.payment_status || '').toLowerCase() === 'paid' || outstanding <= 0
+              const itemsPreview = (quote.items || []).slice(0, 3)
+              return (
+                <div key={quote.id} className="card p-4 border-l-4 border-accent">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs text-accent">{quote.quote_number}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase bg-blue-500/20 text-blue-300">{quote.status}</span>
+                        {quote.payment_status && <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${isPaid ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>{quote.payment_status}</span>}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-text-primary">{quote.client_name || 'Unknown client'}</p>
+                        {quote.company && <p className="text-sm text-text-secondary">{quote.company}</p>}
+                        {quote.client_email && <p className="text-xs text-text-muted">{quote.client_email}</p>}
+                      </div>
+                      {itemsPreview.length > 0 && (
+                        <div className="rounded-lg bg-bg-elevated border border-border divide-y divide-border/60 max-w-2xl">
+                          {itemsPreview.map((item, index) => (
+                            <div key={`${quote.id}-${index}`} className="flex justify-between gap-3 px-3 py-2 text-xs">
+                              <span className="text-text-secondary truncate">{item.quantity} x {item.description}</span>
+                              <span className="font-semibold text-text-primary shrink-0">{formatCurrency(item.line_total || 0)}</span>
+                            </div>
+                          ))}
+                          {(quote.items || []).length > 3 && <div className="px-3 py-2 text-xs text-text-muted">+ {(quote.items || []).length - 3} more items</div>}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 lg:w-64 space-y-3">
+                      <div className="rounded-lg bg-bg-elevated border border-border p-3 space-y-1 text-sm">
+                        <div className="flex justify-between"><span className="text-text-muted">Total</span><span className="font-semibold">{formatCurrency(quote.total)}</span></div>
+                        <div className="flex justify-between"><span className="text-text-muted">Paid</span><span className="font-semibold text-emerald-400">{formatCurrency(paid)}</span></div>
+                        <div className="flex justify-between"><span className="text-text-muted">Outstanding</span><span className="font-bold text-amber-400">{formatCurrency(outstanding)}</span></div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => approveQuoteFromReception(quote)} disabled={quote.status === 'approved'} className="btn-secondary btn-sm flex-1 disabled:opacity-50">
+                          Approved
+                        </button>
+                        <button onClick={() => { setQuotePaymentTarget(quote); setQuotePayAmount(outstanding > 0 ? outstanding.toFixed(2) : ''); setQuotePayNote('') }} className="btn-primary btn-sm flex-1">
+                          Receive
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -959,6 +1157,49 @@ function ReceptionPageInner() {
                 <button onClick={() => setPayingItem(null)} className="btn-secondary flex-1">Cancel</button>
                 <button onClick={recordPayment} disabled={isSaving || !payAmount} className="btn-primary flex-1">
                   {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : '✓ Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quote payment modal */}
+      {quotePaymentTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-bg-surface border border-border rounded-2xl w-full max-w-sm shadow-modal">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div>
+                <p className="font-semibold text-text-primary">Receive Quote Payment</p>
+                <p className="text-xs text-text-muted">{quotePaymentTarget.quote_number} · {quotePaymentTarget.client_name}</p>
+              </div>
+              <button onClick={() => setQuotePaymentTarget(null)} className="btn-icon w-7 h-7"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-bg-elevated rounded-xl p-3 flex justify-between">
+                <span className="text-sm text-text-muted">Outstanding</span>
+                <span className="font-bold text-amber-400">{formatCurrency(Math.max((quotePaymentTarget.total || 0) - (quotePaymentTarget.amount_paid || 0), 0))}</span>
+              </div>
+              <div>
+                <label className="label">Amount Received</label>
+                <input value={quotePayAmount} onChange={e => setQuotePayAmount(e.target.value)} className="input text-lg font-bold" type="number" step="0.01" />
+              </div>
+              <div>
+                <label className="label mb-2">Method</label>
+                <div className="flex gap-2">
+                  <MethodBtn method="cash" label="Cash" icon={Banknote} state={quotePayMethod} setState={setQuotePayMethod} />
+                  <MethodBtn method="card" label="Card" icon={CreditCard} state={quotePayMethod} setState={setQuotePayMethod} />
+                  <MethodBtn method="eft" label="EFT" icon={Building2} state={quotePayMethod} setState={setQuotePayMethod} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Reception Comment</label>
+                <input value={quotePayNote} onChange={e => setQuotePayNote(e.target.value)} className="input" placeholder="Deposit, full payment, EFT reference..." />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setQuotePaymentTarget(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={recordQuotePayment} disabled={isSaving || !quotePayAmount} className="btn-primary flex-1">
+                  {isSaving ? <><span className="spinner w-4 h-4" /> Saving...</> : 'Confirm'}
                 </button>
               </div>
             </div>

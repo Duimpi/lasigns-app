@@ -38,6 +38,8 @@ const COURIER_PENDING_TAG = '[LA_COURIER_PENDING]'
 const COURIER_COURIERED_TAG = '[LA_COURIER_COURIERED]'
 const INSTALL_PENDING_TAG = '[LA_INSTALL_PENDING]'
 const INSTALL_DONE_TAG = '[LA_INSTALL_DONE]'
+const RECEPTION_APPROVED_TAG = '[LA_RECEPTION_APPROVED]'
+const RECEPTION_QUOTE_TAG_RE = /\[LA_RECEPTION_(APPROVED_AT|APPROVED_BY|APPROVED_NOTE|PAYMENT_NOTE|PAYMENT_AMOUNT|PAYMENT_METHOD|PAYMENT_AT|PAYMENT_BY):[^\]]*\]/gi
 const FULFILLMENT_TAGS = [
   COLLECTION_PENDING_TAG,
   COLLECTION_COLLECTED_TAG,
@@ -92,6 +94,11 @@ interface QuoteWithItems extends Quote {
   items: Quote['items']
   assigned_worker?: Worker | ''
   client_phone?: string | null
+  raw_notes?: string | null
+  reception_status?: string
+  reception_note?: string
+  reception_amount?: string
+  reception_method?: string
 }
 
 function getQuoteWorker(notes?: string | null): Worker | '' {
@@ -199,6 +206,8 @@ function stripQuoteHiddenTags(notes?: string | null) {
   return stripFulfillmentTags(notes)
     .replace(QUOTE_WORKER_RE, '')
     .replace(QUOTE_CLIENT_NUMBER_RE, '')
+    .replace(RECEPTION_APPROVED_TAG, '')
+    .replace(RECEPTION_QUOTE_TAG_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
@@ -207,7 +216,15 @@ function stripQuoteWorkerTag(notes?: string | null) {
   return stripQuoteHiddenTags(notes)
 }
 
-function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null, data?: QuoteFormData) {
+function getReceptionQuoteTags(notes?: string | null) {
+  const text = String(notes || '')
+  return [
+    text.includes(RECEPTION_APPROVED_TAG) ? RECEPTION_APPROVED_TAG : '',
+    ...Array.from(text.matchAll(new RegExp(RECEPTION_QUOTE_TAG_RE.source, 'gi'))).map(match => match[0]),
+  ].filter(Boolean)
+}
+
+function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clientNumber?: string | null, data?: QuoteFormData, originalNotes?: string | null) {
   const cleanNotes = stripQuoteHiddenTags(notes)
   const cleanNumber = cleanClientNumber(clientNumber)
   return [
@@ -215,6 +232,7 @@ function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clien
     worker ? '[LA_WORKER:' + worker + ']' : '',
     cleanNumber ? '[LA_CLIENT_NUMBER:' + cleanNumber + ']' : '',
     ...(data ? fulfillmentTagsForQuote(data) : []),
+    ...getReceptionQuoteTags(originalNotes),
   ].filter(Boolean).join('\n')
 }
 
@@ -223,11 +241,22 @@ function notesWithQuoteWorker(notes?: string | null, worker?: string | null) {
 }
 
 function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
+  const rawNotes = quote.notes
+  const paymentNote = tagValue(rawNotes, 'RECEPTION_PAYMENT_NOTE')
+  const approvalNote = tagValue(rawNotes, 'RECEPTION_APPROVED_NOTE')
+  const receptionAmount = tagValue(rawNotes, 'RECEPTION_PAYMENT_AMOUNT')
+  const receptionMethod = tagValue(rawNotes, 'RECEPTION_PAYMENT_METHOD')
+  const hasReceptionApproval = String(rawNotes || '').includes(RECEPTION_APPROVED_TAG)
   return {
     ...quote,
+    raw_notes: rawNotes,
     notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
     client_phone: cleanClientNumber((quote as any).client_phone || getQuoteClientNumber(quote.notes)),
+    reception_status: receptionAmount ? 'Payment received' : hasReceptionApproval ? 'Approved by Reception' : '',
+    reception_note: paymentNote || approvalNote,
+    reception_amount: receptionAmount,
+    reception_method: receptionMethod,
   }
 }
 
@@ -364,7 +393,8 @@ function QuotesPageInner() {
 
   function openEdit(quote: QuoteWithItems) {
     setEditingQuote(quote)
-    const fulfillment = getFulfillmentDetails(quote.notes)
+    const sourceNotes = quote.raw_notes || quote.notes
+    const fulfillment = getFulfillmentDetails(sourceNotes)
     reset({
       client_id: quote.client_id || undefined,
       client_name: quote.client_name || '',
@@ -372,10 +402,10 @@ function QuotesPageInner() {
       client_address: quote.client_address || '',
       status: quote.status,
       vat_rate: quote.vat_rate,
-      notes: stripQuoteWorkerTag(quote.notes),
+      notes: stripQuoteWorkerTag(sourceNotes),
       valid_until: quote.valid_until || '',
-      assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes),
-      client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
+      assigned_worker: quote.assigned_worker || getQuoteWorker(sourceNotes),
+      client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(sourceNotes)),
       discount: (quote as any).discount || 0,
       fulfillment_method: fulfillment.method as QuoteFormData['fulfillment_method'],
       delivery_name: fulfillment.delivery_name,
@@ -445,7 +475,7 @@ function QuotesPageInner() {
         
         vat_amount: vat,
         total: discountedSub + vat,
-        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, cleanClientNumber(data.client_phone), data) || null,
+        notes: notesWithQuoteMeta(data.notes, data.assigned_worker, cleanClientNumber(data.client_phone), data, editingQuote?.raw_notes || editingQuote?.notes) || null,
         valid_until: data.valid_until || null,
         is_retail: false,
         created_by: null,
@@ -735,6 +765,13 @@ function QuotesPageInner() {
                         <span className="font-mono text-accent font-semibold">{quote.quote_number}</span>
                         {quote.is_locked && <Lock className="w-3 h-3 text-text-muted" />}
                       </div>
+                      {quote.reception_status && (
+                        <div className="mt-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] leading-snug text-emerald-300 max-w-[210px]">
+                          <span className="font-semibold">{quote.reception_status}</span>
+                          {quote.reception_amount && <span> · {formatCurrency(Number(quote.reception_amount))}{quote.reception_method ? ` ${quote.reception_method}` : ''}</span>}
+                          {quote.reception_note && <p className="text-emerald-200/80 truncate">{quote.reception_note}</p>}
+                        </div>
+                      )}
                     </td>
                     <td className="font-medium">{quote.client_name || '—'}</td>
                     <td className="text-text-secondary text-sm">{quote.assigned_worker || <span className="text-text-muted">-</span>}</td>
