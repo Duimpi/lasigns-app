@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+const emailFrom = process.env.RESEND_FROM_EMAIL || 'LA Signs <finance@lasigns.com.na>'
+const emailTo = process.env.RESEND_TO_EMAIL || 'finance@lasigns.com.na'
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,8 +16,8 @@ export async function POST(req: NextRequest) {
       : `A job card has been created for ${clientName}. Please find the job card attached.`
 
     const { data, error } = await resend.emails.send({
-      from: 'LA Signs <onboarding@resend.dev>',
-      to: ['finance@lasigns.com.na'],
+      from: emailFrom,
+      to: [emailTo],
       subject: subject,
       text: body,
       attachments: [
