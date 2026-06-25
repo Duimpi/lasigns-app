@@ -176,6 +176,7 @@ function JobCardsPageInner() {
   const [jobComments, setJobComments] = useState<{ id: string; content: string; created_at: string; author: { full_name: string } | null }[]>([])
   const [newComment, setNewComment] = useState('')
   const [isSendingComment, setIsSendingComment] = useState(false)
+  const [emailedJobIds, setEmailedJobIds] = useState<Set<string>>(new Set())
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<JobFormData>({
     resolver: zodResolver(jobSchema),
@@ -539,6 +540,7 @@ function JobCardsPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
+      setEmailedJobIds(prev => new Set(prev).add(job.id))
       toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
@@ -666,7 +668,13 @@ function JobCardsPageInner() {
                         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                           <button onClick={() => downloadPDF(job)} className="btn-icon" title="Download"><Download className="w-3.5 h-3.5" /></button>
                           <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => emailJobCard(job)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
+                          <button
+                            onClick={() => emailJobCard(job)}
+                            className={`btn-icon ${emailedJobIds.has(job.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+                            title={emailedJobIds.has(job.id) ? 'Email sent' : 'Email'}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                          </button>
                           <button onClick={() => handleComplete(job)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                           {profile?.role === 'admin' && (
                             <button onClick={() => setDeleteTarget(job)} className="btn-icon text-red-400/50 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -692,7 +700,12 @@ function JobCardsPageInner() {
           <div className="flex gap-2">
             <button onClick={() => downloadPDF(editingJob)} className="btn-secondary btn-sm"><Download className="w-3.5 h-3.5" /> PDF</button>
             <button onClick={() => printJob(editingJob)} className="btn-secondary btn-sm"><Printer className="w-3.5 h-3.5" /> Print</button>
-            <button onClick={() => emailJobCard(editingJob)} className="btn-secondary btn-sm"><Mail className="w-3.5 h-3.5" /> Email</button>
+            <button
+              onClick={() => emailJobCard(editingJob)}
+              className={`btn-secondary btn-sm ${emailedJobIds.has(editingJob.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+            >
+              <Mail className="w-3.5 h-3.5" /> {emailedJobIds.has(editingJob.id) ? 'Sent' : 'Email'}
+            </button>
           </div>
         )}
       >

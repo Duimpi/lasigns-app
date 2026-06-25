@@ -149,6 +149,7 @@ function RetailPageInner() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [activeTab, setActiveTab] = useState<'details' | 'items'>('details')
+  const [emailedRetailIds, setEmailedRetailIds] = useState<Set<string>>(new Set())
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<RetailFormData>({
     resolver: zodResolver(retailSchema),
@@ -487,6 +488,7 @@ function RetailPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
+      setEmailedRetailIds(prev => new Set(prev).add(job.id))
       toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
@@ -577,7 +579,13 @@ function RetailPageInner() {
                     <td>
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => downloadAdminPDF(job)} className="btn-icon" title="Admin PDF"><Download className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => emailWorkerPDF(job)} className="btn-icon" title="Email worker PDF"><Mail className="w-3.5 h-3.5" /></button>
+                        <button
+                          onClick={() => emailWorkerPDF(job)}
+                          className={`btn-icon ${emailedRetailIds.has(job.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+                          title={emailedRetailIds.has(job.id) ? 'Email sent' : 'Email worker PDF'}
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => printJob(job)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                         <button onClick={() => handleComplete(job)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
@@ -603,7 +611,13 @@ function RetailPageInner() {
         actions={editingJob && (
           <div className="flex gap-2">
             <button onClick={() => downloadAdminPDF(editingJob)} className="btn-secondary btn-sm" title="With prices"><Download className="w-3.5 h-3.5" /> Admin PDF</button>
-            <button onClick={() => emailWorkerPDF(editingJob)} className="btn-secondary btn-sm" title="No prices"><Mail className="w-3.5 h-3.5" /> Email</button>
+            <button
+              onClick={() => emailWorkerPDF(editingJob)}
+              className={`btn-secondary btn-sm ${emailedRetailIds.has(editingJob.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+              title="No prices"
+            >
+              <Mail className="w-3.5 h-3.5" /> {emailedRetailIds.has(editingJob.id) ? 'Sent' : 'Email'}
+            </button>
           </div>
         )}
       >

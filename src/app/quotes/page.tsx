@@ -287,6 +287,7 @@ function QuotesPageInner() {
   const [clientSearch, setClientSearch] = useState('')
   const [selectedForPrint, setSelectedForPrint] = useState<string[]>([])
   const [printSelectMode, setPrintSelectMode] = useState(false)
+  const [emailedQuoteIds, setEmailedQuoteIds] = useState<Set<string>>(new Set())
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<QuoteFormData>({
     resolver: zodResolver(quoteSchema),
@@ -673,6 +674,7 @@ function QuotesPageInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       toast.dismiss(toastId)
+      setEmailedQuoteIds(prev => new Set(prev).add(quote.id))
       toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
@@ -784,7 +786,13 @@ function QuotesPageInner() {
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => downloadPDF(quote)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
                         <button onClick={() => printQuote(quote)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => emailQuote(quote)} className="btn-icon" title="Email"><Mail className="w-3.5 h-3.5" /></button>
+                        <button
+                          onClick={() => emailQuote(quote)}
+                          className={`btn-icon ${emailedQuoteIds.has(quote.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+                          title={emailedQuoteIds.has(quote.id) ? 'Email sent' : 'Email'}
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => handleComplete(quote)} className="btn-icon text-emerald-400" title="Complete"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                         {profile?.role === 'admin' && (
                           <>
@@ -814,7 +822,12 @@ function QuotesPageInner() {
           <div className="flex gap-2">
             <button onClick={() => downloadPDF(editingQuote)} className="btn-secondary btn-sm"><Download className="w-3.5 h-3.5" /> PDF</button>
             <button onClick={() => printQuote(editingQuote)} className="btn-secondary btn-sm"><Printer className="w-3.5 h-3.5" /> Print</button>
-            <button onClick={() => emailQuote(editingQuote)} className="btn-secondary btn-sm"><Mail className="w-3.5 h-3.5" /> Email</button>
+            <button
+              onClick={() => emailQuote(editingQuote)}
+              className={`btn-secondary btn-sm ${emailedQuoteIds.has(editingQuote.id) ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : ''}`}
+            >
+              <Mail className="w-3.5 h-3.5" /> {emailedQuoteIds.has(editingQuote.id) ? 'Sent' : 'Email'}
+            </button>
           </div>
         )}
       >
