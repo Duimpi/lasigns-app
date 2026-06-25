@@ -36,6 +36,26 @@ function numberValue(value: unknown) {
   return Number.isFinite(n) ? n : 0
 }
 
+function quoteLineSubtotal(quote: { items?: any[] }) {
+  return (quote.items || []).reduce((sum, item) => {
+    const lineTotal = numberValue(item.line_total || item.total || numberValue(item.quantity) * numberValue(item.unit_price))
+    return sum + lineTotal
+  }, 0)
+}
+
+function quoteDiscountInfo(quote: { subtotal?: number; discount?: number; items?: any[] }) {
+  const lineSubtotal = quoteLineSubtotal(quote)
+  const discountPercent = numberValue((quote as any).discount)
+  const discountAmount = discountPercent > 0
+    ? lineSubtotal * (discountPercent / 100)
+    : Math.max(0, lineSubtotal - numberValue(quote.subtotal))
+  if (discountAmount <= 0.01) return null
+  const percent = discountPercent > 0
+    ? discountPercent
+    : lineSubtotal > 0 ? (discountAmount / lineSubtotal) * 100 : 0
+  return { amount: discountAmount, percent }
+}
+
 function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: JobCardPrintOptions = {}) {
   const W = 148   // A5 width mm
   const H = 210   // A5 height mm
@@ -639,8 +659,10 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.line(totalsX, bottomY, totalsX, bottomY + bottomH)
   doc.line(totalsX + 24, bottomY, totalsX + 24, bottomY + bottomH)
 
+  const discount = isLastPage ? quoteDiscountInfo(quote) : null
   const totalRows = isLastPage ? [
     { label: 'N$ (excl)', value: formatCurrency(numberValue(quote.subtotal)) },
+    ...(discount ? [{ label: 'Discount ' + discount.percent.toFixed(discount.percent % 1 === 0 ? 0 : 1) + '%', value: '-' + formatCurrency(discount.amount) }] : []),
     { label: String(quote.vat_rate || 15) + '% VAT', value: formatCurrency(numberValue(quote.vat_amount)) },
     { label: 'N$ (Incl)', value: formatCurrency(numberValue(quote.total)) },
   ] : [
@@ -648,14 +670,14 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
     { label: String(quote.vat_rate || 15) + '% VAT', value: '' },
     { label: 'N$ (Incl)', value: '' },
   ]
-  const tRowH = bottomH / 3
+  const tRowH = bottomH / totalRows.length
   for (let i = 0; i < totalRows.length; i++) {
     const ty = bottomY + i * tRowH
     if (i > 0) doc.line(totalsX, ty, totalsX + totalsW, ty)
     doc.setFontSize(6.5)
     doc.setFont('helvetica', 'bold')
     doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1.5)
-    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
+    doc.setFont('helvetica', i === totalRows.length - 1 ? 'bold' : 'normal')
     doc.text(totalRows[i].value, totalsX + totalsW - 1, ty + tRowH / 2 + 1, { align: 'right' })
   }
 
@@ -724,6 +746,7 @@ export function generateQuotePDF(quote: {
   subtotal: number
   vat_amount: number
   total: number
+  discount?: number
   notes?: string
   valid_until?: string
   items?: { description: string; quantity: number; unit_price: number; total: number; size?: string }[]
@@ -858,8 +881,14 @@ export function generateQuotePDF(quote: {
 
   // Totals
   const tX = m + iW - 75
+  const discount = quoteDiscountInfo(quote)
+  const lineSubtotal = quoteLineSubtotal(quote)
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
+  if (discount) {
+    doc.text('Subtotal:', tX, y); doc.text(formatCurrency(lineSubtotal), m + iW, y, { align: 'right' }); y += 6
+    doc.text('Discount (' + discount.percent.toFixed(discount.percent % 1 === 0 ? 0 : 1) + '%):', tX, y); doc.text('-' + formatCurrency(discount.amount), m + iW, y, { align: 'right' }); y += 6
+  }
   doc.text('N$ (excl):', tX, y); doc.text(formatCurrency(quote.subtotal), m + iW, y, { align: 'right' }); y += 6
   doc.text(`15% VAT:`, tX, y); doc.text(formatCurrency(quote.vat_amount), m + iW, y, { align: 'right' }); y += 2
   doc.setLineWidth(0.5); doc.line(tX, y, m + iW, y); y += 4
