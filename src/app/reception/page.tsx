@@ -190,13 +190,28 @@ function ReceptionPageInner() {
 
       const { data: activeQuotes } = await supabase
         .from('quotes')
-        .select('id, quote_number, client_id, client_name, client_email, client_address, status, subtotal, vat_amount, total, amount_paid, payment_status, payment_method, notes, created_at, items:quote_items(description, quantity, line_total, sort_order)')
+        .select('id, quote_number, client_id, client_name, client_email, client_address, status, subtotal, vat_amount, total, amount_paid, payment_status, payment_method, notes, created_at')
         .eq('is_retail', false)
         .neq('status', 'completed')
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false })
 
-      const clientIds = Array.from(new Set(((activeQuotes || []) as any[]).map(q => q.client_id).filter(Boolean)))
+      const quoteRows = (activeQuotes || []) as any[]
+      const quoteIds = quoteRows.map(q => q.id)
+      let itemsByQuote: Record<string, any[]> = {}
+      if (quoteIds.length > 0) {
+        const { data: quoteItems } = await supabase
+          .from('quote_items')
+          .select('quote_id, description, quantity, line_total, sort_order')
+          .in('quote_id', quoteIds)
+          .order('sort_order', { ascending: true })
+        itemsByQuote = ((quoteItems || []) as any[]).reduce((acc: Record<string, any[]>, item: any) => {
+          acc[item.quote_id] = [...(acc[item.quote_id] || []), item]
+          return acc
+        }, {})
+      }
+
+      const clientIds = Array.from(new Set(quoteRows.map(q => q.client_id).filter(Boolean)))
       let companyByClient: Record<string, string> = {}
       if (clientIds.length > 0) {
         const { data: quoteClients } = await supabase
@@ -205,10 +220,10 @@ function ReceptionPageInner() {
           .in('id', clientIds)
         companyByClient = Object.fromEntries(((quoteClients || []) as any[]).map(c => [c.id, c.company || '']))
       }
-      setQuotePaymentItems(((activeQuotes || []) as any[]).map(q => ({
+      setQuotePaymentItems(quoteRows.map(q => ({
         ...q,
         company: q.client_id ? companyByClient[q.client_id] || null : null,
-        items: (q.items || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)),
+        items: itemsByQuote[q.id] || [],
       })))
 
       // Walk-in list
