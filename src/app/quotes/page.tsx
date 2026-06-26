@@ -962,7 +962,7 @@ function QuotesPageInner() {
                   <div><label className="label">Contact Number</label><input {...register('install_contact_number')} className="input" /></div>
                   <div><label className="label">Preferred Date</label><input {...register('install_preferred_date')} type="date" className="input" /></div>
                 </div>
-                <div><label className="label">Installation Notes</label><textarea {...register('install_notes')} className="input min-h-[70px] resize-none" /></div>
+                <div><label className="label">Installation Notes</label><textarea {...register('install_notes')} className="input min-h-[110px] resize-y overflow-y-auto" /></div>
                 <p className="text-xs text-text-muted">Wilvert will be notified when this quote is marked complete.</p>
               </div>
             )}
@@ -1074,7 +1074,7 @@ function QuotesPageInner() {
 
           <div>
             <label className="label">Notes</label>
-            <textarea {...register('notes')} className="input min-h-[80px] resize-none" placeholder="Additional notes..." />
+            <textarea {...register('notes')} className="input min-h-[130px] resize-y overflow-y-auto" placeholder="Additional notes..." />
           </div>
 
           <div className="flex gap-3 pt-2">

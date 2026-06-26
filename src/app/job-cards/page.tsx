@@ -777,9 +777,9 @@ function JobCardsPageInner() {
                   <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
                 </div>
 
-                <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[70px] resize-none" /></div>
+                <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[120px] resize-y overflow-y-auto" /></div>
 
-                <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
+                <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[130px] resize-y overflow-y-auto" /></div>
               </div>
             </div>
 

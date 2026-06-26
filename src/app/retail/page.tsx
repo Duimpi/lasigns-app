@@ -37,9 +37,58 @@ const SHOPRITE_CHICRITE_BRANCHES = [
   'Shoprite Katima Mulilo ChicRite',
   'Shoprite Rundu ChicRite',
 ]
+const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
+  Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
+  Checkers: ['Checkers'],
+  Usave: ['Usave'],
+}
+const RETAIL_CONTACT_TAGS = ['RETAIL_COMPANY', 'RETAIL_PHONE', 'RETAIL_EMAIL', 'RETAIL_ALL_STORES']
+const ITEM_NOTE_RE = /\s*\[LA_ITEM_NOTE:([^\]]*)\]/i
+
+function makeTag(key: string, value?: string | null) {
+  const clean = String(value || '').trim()
+  return clean ? `[LA_${key}:${encodeURIComponent(clean)}]` : ''
+}
+
+function tagValue(notes: string | null | undefined, key: string) {
+  const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
+  if (!match?.[1]) return ''
+  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+}
+
+function stripRetailTags(notes?: string | null) {
+  let clean = String(notes || '')
+  RETAIL_CONTACT_TAGS.forEach(tag => {
+    clean = clean.replace(new RegExp('\\[LA_' + tag + ':[^\\]]*\\]', 'gi'), '')
+  })
+  return clean.trim()
+}
+
+function getItemNote(description?: string | null) {
+  const match = String(description || '').match(ITEM_NOTE_RE)
+  if (!match?.[1]) return ''
+  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+}
+
+function stripItemNote(description?: string | null) {
+  return String(description || '').replace(ITEM_NOTE_RE, '').trim()
+}
+
+function withItemNote(description?: string | null, note?: string | null) {
+  return [stripItemNote(description), makeTag('ITEM_NOTE', note)].filter(Boolean).join(' ')
+}
+
+function retailCompanyName(store?: string | null, branch?: string | null) {
+  const cleanStore = String(store || '').trim()
+  const cleanBranch = String(branch || '').trim()
+  if (!cleanBranch) return cleanStore
+  if (!cleanStore) return cleanBranch
+  return cleanBranch.toLowerCase().startsWith(cleanStore.toLowerCase()) ? cleanBranch : `${cleanStore} ${cleanBranch}`
+}
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
+  note: z.string().optional().default(''),
   quantity: z.coerce.number().default(1),
   unit_price: z.coerce.number().default(0),
   width: z.string().optional().default(''),
@@ -53,6 +102,10 @@ const retailSchema = z.object({
   job_number: z.string().optional(),
   client_id: z.string().optional().default(''),
   client_name: z.string().optional().default(''),
+  client_phone: z.string().optional().default(''),
+  client_email: z.string().optional().default(''),
+  retail_company: z.string().optional().default(''),
+  show_all_stores: z.boolean().optional().default(false),
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional().default(''),
   notes: z.string().optional().default(''),
@@ -76,6 +129,7 @@ interface RetailJob {
   store?: string
   branch?: string
   client_name?: string
+  client?: Client
   status: JobCardStatus
   priority: Priority
   assigned_worker?: Worker
@@ -95,6 +149,7 @@ interface RetailJob {
   items: {
     id: string
     description: string
+    note?: string
     quantity: number
     unit_price: number
     total: number
@@ -163,9 +218,10 @@ function RetailPageInner() {
     resolver: zodResolver(retailSchema),
     defaultValues: {
       store: 'Shoprite', branch: '', job_number: '', client_name: '',
+      client_phone: '', client_email: '', retail_company: '', show_all_stores: false,
       title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
+      vat_rate: 15, discount: 0, items: [{ description: '', note: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
   })
 
@@ -235,12 +291,19 @@ function RetailPageInner() {
     try {
       const { data, error } = await supabase
         .from('job_cards')
-        .select(`*, items:job_card_items(*)`)
+        .select(`*, items:job_card_items(*), client:clients(id, name, company, emails:client_emails(*), phones:client_phones(*))`)
         .eq('is_retail', true)
         .not('status', 'in', '(completed,delivered)')
         .order('created_at', { ascending: false })
       if (error) throw error
-      setJobs((data as RetailJob[]) || [])
+      setJobs(((data as RetailJob[]) || []).map(job => ({
+        ...job,
+        items: (job.items || []).map(item => ({
+          ...item,
+          description: stripItemNote(item.description),
+          note: getItemNote(item.description),
+        })),
+      })))
     } catch { toast.error('Failed to load retail jobs') }
     finally { setIsLoading(false) }
   }
@@ -250,16 +313,20 @@ function RetailPageInner() {
     const dbBranches = (data as RetailBranch[]) || []
     const withChicRiteBranches = (list: RetailBranch[]) => {
       const existing = new Set(list.map(branch => `${branch.store}:${branch.name}`))
-      const missing = SHOPRITE_CHICRITE_BRANCHES
-        .filter(name => !existing.has(`Shoprite:${name}`))
-        .map(name => ({ id: `shoprite-chicrite-${name}`, store: 'Shoprite' as RetailStore, name, is_liquor: false }))
+      const missing = Object.entries(EXTRA_BRANCHES).flatMap(([store, names]) =>
+        names
+          .filter(name => !existing.has(`${store}:${name}`))
+          .map(name => ({ id: `${store.toLowerCase()}-${name}`, store: store as RetailStore, name, is_liquor: false }))
+      )
       return [...list, ...missing].sort((a, b) => a.store.localeCompare(b.store) || a.name.localeCompare(b.name))
     }
     if (dbBranches.length > 0) {
       setBranches(withChicRiteBranches(dbBranches))
     } else {
       const fallback: RetailBranch[] = [
-        ...SHOPRITE_CHICRITE_BRANCHES.map(name => ({ id: `shoprite-chicrite-${name}`, store: 'Shoprite' as RetailStore, name, is_liquor: false })),
+        ...Object.entries(EXTRA_BRANCHES).flatMap(([store, names]) =>
+          names.map(name => ({ id: `${store.toLowerCase()}-${name}`, store: store as RetailStore, name, is_liquor: false }))
+        ),
         ...[
           'Ausspannplatz', 'Brakwater', 'Gobabis', 'Grootfontein', 'Katutura',
           'Keetmanshoop', 'Khomasdal', 'Lüderitz', 'Mariental', 'Okahao',
@@ -300,7 +367,10 @@ function RetailPageInner() {
   }
 
   async function loadClients() {
-    const { data } = await supabase.from('clients').select('id, name, company').order('name')
+    const { data } = await supabase
+      .from('clients')
+      .select('id, name, company, emails:client_emails(*), phones:client_phones(*)')
+      .order('name')
     setClients((data as Client[]) || [])
   }
 
@@ -316,9 +386,10 @@ function RetailPageInner() {
     try { nextNum = await getNextRetailNumber() } catch {}
     reset({
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
+      client_phone: '', client_email: '', retail_company: '', show_all_stores: false,
       title: '', description: '', notes: '', status: 'Pending', priority: 'Medium',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
-      vat_rate: 15, discount: 0, items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
+      vat_rate: 15, discount: 0, items: [{ description: '', note: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
   }
@@ -332,9 +403,13 @@ function RetailPageInner() {
       job_number: job.job_number,
       client_id: job.client_id,
       client_name: job.client_name || '',
+      client_phone: tagValue(job.notes, 'RETAIL_PHONE') || job.client?.phones?.[0]?.phone || '',
+      client_email: tagValue(job.notes, 'RETAIL_EMAIL') || job.client?.emails?.[0]?.email || '',
+      retail_company: tagValue(job.notes, 'RETAIL_COMPANY') || retailCompanyName(job.store, job.branch),
+      show_all_stores: tagValue(job.notes, 'RETAIL_ALL_STORES') === 'yes',
       title: job.title,
       description: job.description || '',
-      notes: job.notes || '',
+      notes: stripRetailTags(job.notes),
       status: normalizeJobStatus(job.status),
       priority: normalizePriority(job.priority),
       assigned_worker: job.assigned_worker || '',
@@ -345,13 +420,14 @@ function RetailPageInner() {
       discount: (job as any).discount || 0,
       items: job.items.length > 0
         ? job.items.sort((a, b) => a.sort_order - b.sort_order).map(i => ({
-            description: i.description,
+            description: stripItemNote(i.description),
+            note: i.note || getItemNote(i.description),
             quantity: i.quantity,
             unit_price: i.unit_price,
             width: i.size?.split('x')[0] || '',
             height: i.size?.split('x')[1] || '',
           }))
-        : [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
+        : [{ description: '', note: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
     setIsFormOpen(true)
   }
@@ -372,13 +448,22 @@ function RetailPageInner() {
       const client = await ensureClientRecord({
         clientId: data.client_id,
         name: data.client_name,
+        email: data.client_email,
+        phone: data.client_phone,
         createdBy: profile?.id,
       })
+      const retailNotes = [
+        stripRetailTags(data.notes),
+        makeTag('RETAIL_COMPANY', data.show_all_stores ? 'Shoprite/Checkers/USave' : (data.retail_company || retailCompanyName(data.store, data.branch))),
+        makeTag('RETAIL_PHONE', data.client_phone),
+        makeTag('RETAIL_EMAIL', data.client_email),
+        makeTag('RETAIL_ALL_STORES', data.show_all_stores ? 'yes' : ''),
+      ].filter(Boolean).join('\n')
 
       const payload = {
         title: data.title,
         description: data.description || null,
-        notes: data.notes || null,
+        notes: retailNotes || null,
         client_id: client?.id || null,
         client_name: client?.name || data.client_name || null,
         store: data.store,
@@ -388,7 +473,7 @@ function RetailPageInner() {
         assigned_worker: data.assigned_worker || null,
         due_date: data.due_date || null,
         is_retail: true,
-        sales_rep: data.sales_rep || null,
+        sales_rep: null,
         date_completed: data.date_completed || (completionDate ? completionDate.slice(0, 10) : null),
         vat_rate: data.vat_rate,
         subtotal: discountedSub,
@@ -415,7 +500,7 @@ function RetailPageInner() {
         await supabase.from('job_card_items').insert(
           data.items.map((item, idx) => ({
             job_card_id: jobId,
-            description: item.description,
+            description: withItemNote(item.description, item.note),
             quantity: item.quantity,
             unit_price: item.unit_price,
             total: (() => {
@@ -471,14 +556,32 @@ function RetailPageInner() {
     finally { setIsDeleting(false) }
   }
 
+  function retailJobForPrint(job: RetailJob) {
+    const retailCompany = tagValue(job.notes, 'RETAIL_COMPANY') || retailCompanyName(job.store, job.branch)
+    return {
+      ...job,
+      client: {
+        ...(job.client || {}),
+        company: retailCompany,
+        phones: [{ id: 'retail-phone', client_id: job.client_id || '', phone: tagValue(job.notes, 'RETAIL_PHONE') || job.client?.phones?.[0]?.phone || '', is_primary: true }],
+        emails: [{ id: 'retail-email', client_id: job.client_id || '', email: tagValue(job.notes, 'RETAIL_EMAIL') || job.client?.emails?.[0]?.email || '', is_primary: true }],
+      },
+      items: (job.items || []).map(item => ({
+        ...item,
+        description: stripItemNote(item.description),
+        note: item.note || getItemNote(item.description),
+      })),
+    }
+  }
+
   function downloadAdminPDF(job: RetailJob) {
-    const doc = generateJobCardPDF(job as any, true)
+    const doc = generateJobCardPDF(retailJobForPrint(job) as any, true)
     doc.save(`${job.job_number}-admin.pdf`)
     toast.success('Admin PDF downloaded (with prices)')
   }
 
   function printJob(job: RetailJob) {
-    const doc = generateJobCardPDF(job as any, true)
+    const doc = generateJobCardPDF(retailJobForPrint(job) as any, true)
     const blob = doc.output('blob')
     const url = URL.createObjectURL(blob)
     const win = window.open(url, '_blank')
@@ -486,7 +589,7 @@ function RetailPageInner() {
   }
 
   async function emailWorkerPDF(job: RetailJob) {
-    const doc = generateJobCardPDF(job as any, false)
+    const doc = generateJobCardPDF(retailJobForPrint(job) as any, true)
     const pdfBase64 = doc.output('datauristring').split(',')[1]
     const toastId = toast.loading('Sending email...')
     try {
@@ -656,7 +759,12 @@ function RetailPageInner() {
                 <div className="flex gap-2">
                   {STORES.map(s => (
                     <button key={s} type="button"
-                      onClick={() => { setValue('store', s); setValue('branch', '') }}
+                      onClick={() => {
+                        setValue('store', s)
+                        setValue('branch', '')
+                        setValue('retail_company', s)
+                        setValue('show_all_stores', false)
+                      }}
                       className={`flex-1 py-2.5 rounded border text-sm font-semibold transition-colors ${
                         watchStore === s ? `border-current ${storeColors[s]} bg-current/10` : 'border-border text-text-secondary hover:border-border-strong'
                       }`}>
@@ -668,13 +776,34 @@ function RetailPageInner() {
 
               <div>
                 <label className="label">Branch *</label>
-                <select {...register('branch')} className="input">
+                <select
+                  {...register('branch')}
+                  className="input"
+                  onChange={(e) => {
+                    register('branch').onChange(e)
+                    setValue('retail_company', retailCompanyName(watchStore, e.target.value))
+                  }}
+                >
                   <option value="">— Select Branch —</option>
                   {availableBranches.map(b => (
                     <option key={b.id} value={b.name}>{b.name}{b.is_liquor ? ' (Liquor)' : ''}</option>
                   ))}
                 </select>
               </div>
+
+              <label className="flex items-center gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  {...register('show_all_stores')}
+                  onChange={(e) => {
+                    register('show_all_stores').onChange(e)
+                    if (e.target.checked) setValue('retail_company', 'Shoprite/Checkers/USave')
+                    else setValue('retail_company', retailCompanyName(watchStore, watch('branch')))
+                  }}
+                  className="accent-accent"
+                />
+                Show Shoprite/Checkers/USave on print
+              </label>
 
               <div>
                 <label className="label">Job Card Number</label>
@@ -691,13 +820,34 @@ function RetailPageInner() {
                   <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
                     {filteredClients.map(c => (
                       <div key={c.id} className="px-3 py-2.5 hover:bg-bg-hover cursor-pointer"
-                        onMouseDown={() => { setValue('client_id', c.id); setValue('client_name', c.name); setClientSearch('') }}>
+                        onMouseDown={() => {
+                          setValue('client_id', c.id)
+                          setValue('client_name', c.name)
+                          setValue('client_phone', c.phones?.[0]?.phone || '')
+                          setValue('client_email', c.emails?.[0]?.email || '')
+                          setClientSearch('')
+                        }}>
                         <p className="text-sm text-text-primary">{c.name}</p>
                         {c.company && <p className="text-xs text-text-muted">{c.company}</p>}
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="label">Company</label>
+                  <input {...register('retail_company')} className="input" placeholder="e.g. USave Ondangwa" />
+                </div>
+                <div>
+                  <label className="label">Cell Number</label>
+                  <input {...register('client_phone')} className="input" placeholder="Client contact number" />
+                </div>
+                <div>
+                  <label className="label">Email</label>
+                  <input {...register('client_email')} className="input" placeholder="Client email" />
+                </div>
               </div>
 
               <div>
@@ -730,11 +880,10 @@ function RetailPageInner() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div><label className="label">Due Date</label><input {...register('due_date')} type="date" className="input" /></div>
-                <div><label className="label">Sales Rep</label><input {...register('sales_rep')} className="input" /></div>
               </div>
 
-              <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[80px] resize-none" /></div>
-              <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[60px] resize-none" /></div>
+              <div><label className="label">Description</label><textarea {...register('description')} className="input min-h-[110px] resize-y overflow-y-auto" /></div>
+              <div><label className="label">Notes</label><textarea {...register('notes')} className="input min-h-[110px] resize-y overflow-y-auto" /></div>
             </div>
           )}
 
@@ -747,9 +896,9 @@ function RetailPageInner() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
-                    ⚠ Worker emails hide prices
+                    Retail PDFs show unit prices only
                   </span>
-                  <button type="button" onClick={() => addItem({ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const })}
+                  <button type="button" onClick={() => addItem({ description: '', note: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const })}
                     className="btn-ghost btn-sm text-accent">
                     <Plus className="w-3.5 h-3.5" /> Add Item
                   </button>
@@ -774,8 +923,8 @@ function RetailPageInner() {
                   const h = parseFloat(watchItems?.[i]?.height || '0') / 1000
                   const sqm = w && h ? (w * h).toFixed(4) : null
                   return (
-                    <div key={field.id} className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-4">
+                    <div key={field.id} className="grid grid-cols-12 gap-2 items-start">
+                      <div className="col-span-4 space-y-1">
                         <Controller
                           control={control}
                           name={`items.${i}.description`}
@@ -792,6 +941,7 @@ function RetailPageInner() {
                             />
                           )}
                         />
+                        <input {...register(`items.${i}.note`)} className="input text-xs py-1.5" placeholder="Item note" />
                       </div>
                       <div className="col-span-1">
                         <input {...register(`items.${i}.width`)} className="input" placeholder="W" />

@@ -15,6 +15,7 @@ type JobCardPrintOptions = {
   itemStart?: number
   itemEnd?: number
   totalItems?: number
+  showPrices?: boolean
 }
 
 const JOB_CARD_ROWS_PER_PAGE = 18
@@ -61,6 +62,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   const H = 210   // A5 height mm
   const m = 5     // margin
   const iW = W - m * 2  // inner width
+  const showPrices = !!options.showPrices
   let y = m
 
   // ── OUTER BORDER ─────────────────────────────────────────
@@ -208,10 +210,12 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setLineWidth(0.5)
   doc.line(xOffset + m, y, xOffset + m + iW, y)
 
+  const unitW = showPrices ? 24 : 0
   const COL = {
     qty: { x: xOffset + m, w: 10 },
     size: { x: xOffset + m + 10, w: 22 },
-    material: { x: xOffset + m + 32, w: iW - 32 },
+    material: { x: xOffset + m + 32, w: iW - 32 - unitW },
+    unit: { x: xOffset + m + iW - unitW, w: unitW },
   }
 
   doc.setFillColor(255, 255, 255)
@@ -222,11 +226,13 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.text('Qty', COL.qty.x + 1, y + 5)
   doc.text('Size', COL.size.x + 1, y + 5)
   doc.text('Material', COL.material.x + 1, y + 5)
+  if (showPrices) doc.text('Unit', COL.unit.x + 1, y + 5)
 
   // Vertical lines for columns
   doc.setLineWidth(0.3)
   doc.line(COL.size.x, y, COL.size.x, y + 8)
   doc.line(COL.material.x, y, COL.material.x, y + 8)
+  if (showPrices) doc.line(COL.unit.x, y, COL.unit.x, y + 8)
 
   y += 8
   doc.setLineWidth(0.4)
@@ -249,6 +255,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     doc.setLineWidth(0.2)
     doc.line(COL.size.x, rowY, COL.size.x, rowY + ROW_H)
     doc.line(COL.material.x, rowY, COL.material.x, rowY + ROW_H)
+    if (showPrices) doc.line(COL.unit.x, rowY, COL.unit.x, rowY + ROW_H)
 
     if (item) {
       doc.setTextColor(0, 0, 0)
@@ -266,6 +273,18 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
         doc.text(descLines[1], COL.material.x + 1, rowY + 5.8)
       } else {
         doc.text(descLines[0] || '', COL.material.x + 1, rowY + 4.6)
+      }
+      const itemNote = String((item as any).note || '').trim()
+      if (itemNote) {
+        const noteLines = doc.splitTextToSize(itemNote, COL.material.w - 3)
+        doc.setFontSize(6)
+        doc.setTextColor(70, 70, 70)
+        doc.text(noteLines[0] || '', COL.material.x + 1, rowY + 5.9)
+        doc.setTextColor(0, 0, 0)
+      }
+      if (showPrices) {
+        doc.setFontSize(6.6)
+        doc.text(formatCurrency(numberValue(item.unit_price)), COL.unit.x + COL.unit.w - 1, rowY + 4.6, { align: 'right' })
       }
     }
 
@@ -299,36 +318,36 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setLineWidth(0.2)
   for (let i = 0; i < 2; i++) {
     const ly = bottomY + 10 + i * 5
-    doc.line(xOffset + m + 1, ly, totalsX - 2, ly)
+    doc.line(xOffset + m + 1, ly, (showPrices ? xOffset + m + iW - 1 : totalsX - 2), ly)
   }
   doc.setLineDashPattern([], 0)
 
-  // Vertical separator before totals
-  doc.setDrawColor(0, 0, 0)
-  doc.setLineWidth(0.3)
-  doc.line(totalsX, bottomY, totalsX, bottomY + bottomH)
+  if (!showPrices) {
+    // Vertical separator before totals
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.3)
+    doc.line(totalsX, bottomY, totalsX, bottomY + bottomH)
 
-  // Totals rows — NO PRICES on job card
-  const totalRows = [
-    { label: 'Total Exclusive', value: formatCurrency(numberValue(job.subtotal)) },
-    { label: 'Total VAT', value: formatCurrency(numberValue(job.vat_amount)) },
-    { label: 'Grand Total', value: formatCurrency(numberValue(job.total)) },
-  ]
-  const tRowH = bottomH / 3
-  for (let i = 0; i < totalRows.length; i++) {
-    const ty = bottomY + i * tRowH
-    if (i > 0) {
-      doc.line(totalsX, ty, xOffset + m + iW, ty)
+    const totalRows = [
+      { label: 'Total Exclusive', value: formatCurrency(numberValue(job.subtotal)) },
+      { label: 'Total VAT', value: formatCurrency(numberValue(job.vat_amount)) },
+      { label: 'Grand Total', value: formatCurrency(numberValue(job.total)) },
+    ]
+    const tRowH = bottomH / 3
+    for (let i = 0; i < totalRows.length; i++) {
+      const ty = bottomY + i * tRowH
+      if (i > 0) {
+        doc.line(totalsX, ty, xOffset + m + iW, ty)
+      }
+      doc.setFontSize(5.5)
+      doc.setFont('helvetica', 'bold')
+      doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1)
+      doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
+      doc.text(totalRows[i].value, xOffset + m + iW - 1, ty + tRowH / 2 + 1, { align: 'right' })
+      // Value column
+      doc.line(totalsX + 22, bottomY, totalsX + 22, bottomY + bottomH)
     }
-    doc.setFontSize(5.5)
-    doc.setFont('helvetica', 'bold')
-    doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1)
-    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal')
-    doc.text(totalRows[i].value, xOffset + m + iW - 1, ty + tRowH / 2 + 1, { align: 'right' })
-    // Value column
-    doc.line(totalsX + 22, bottomY, totalsX + 22, bottomY + bottomH)
   }
-
   y = bottomY + bottomH
 
   // ── BOTTOM BORDER ─────────────────────────────────────────
@@ -392,6 +411,7 @@ export function generateJobCardPDF(job: JobCard, _showPrices = false): jsPDF {
       itemStart,
       itemEnd,
       totalItems: (job.items || []).length,
+      showPrices: _showPrices,
     }
     drawSingleJobCard(doc, pageJob, 0, options)
     drawSingleJobCard(doc, pageJob, 148.5, options)
