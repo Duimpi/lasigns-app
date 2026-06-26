@@ -265,21 +265,23 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
       doc.setFont('helvetica', 'normal')
       doc.text(item.size || '', COL.size.x + 1, rowY + 4.6)
 
-      // Description — allow 2 lines
+      // Description allows 2 lines, or 1 line plus an item note.
       const descLines = doc.splitTextToSize(item.description, COL.material.w - 3)
+      const itemNote = String((item as any).note || '').trim()
       doc.setFontSize(7.5)
-      if (descLines.length > 1) {
+      if (itemNote) {
+        doc.text(descLines[0] || '', COL.material.x + 1, rowY + 2.9)
+      } else if (descLines.length > 1) {
         doc.text(descLines[0], COL.material.x + 1, rowY + 3.2)
         doc.text(descLines[1], COL.material.x + 1, rowY + 5.8)
       } else {
         doc.text(descLines[0] || '', COL.material.x + 1, rowY + 4.6)
       }
-      const itemNote = String((item as any).note || '').trim()
       if (itemNote) {
         const noteLines = doc.splitTextToSize(itemNote, COL.material.w - 3)
-        doc.setFontSize(6)
+        doc.setFontSize(5.6)
         doc.setTextColor(70, 70, 70)
-        doc.text(noteLines[0] || '', COL.material.x + 1, rowY + 5.9)
+        doc.text(noteLines[0] || '', COL.material.x + 1, rowY + 5.4)
         doc.setTextColor(0, 0, 0)
       }
       if (showPrices) {
@@ -312,13 +314,27 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setFont('helvetica', 'bold')
   doc.text('Comments:', xOffset + m + 1, bottomY + 5)
 
+  const commentWidth = (showPrices ? iW : totalsX - (xOffset + m) - 2) - 3
+  const commentParts = [job.description, job.notes].map(part => String(part || '').trim()).filter(Boolean)
+  const commentLines = commentParts.length
+    ? doc.splitTextToSize(commentParts.join(' | '), commentWidth).slice(0, 3)
+    : []
+  if (commentLines.length) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(5.8)
+    doc.setTextColor(0, 0, 0)
+    doc.text(commentLines, xOffset + m + 1, bottomY + 8.4)
+  }
+
   // Comment lines (dotted)
   doc.setLineDashPattern([0.5, 0.5], 0)
   doc.setDrawColor(150, 150, 150)
   doc.setLineWidth(0.2)
   for (let i = 0; i < 2; i++) {
     const ly = bottomY + 10 + i * 5
-    doc.line(xOffset + m + 1, ly, (showPrices ? xOffset + m + iW - 1 : totalsX - 2), ly)
+    if (!commentLines.length) {
+      doc.line(xOffset + m + 1, ly, (showPrices ? xOffset + m + iW - 1 : totalsX - 2), ly)
+    }
   }
   doc.setLineDashPattern([], 0)
 

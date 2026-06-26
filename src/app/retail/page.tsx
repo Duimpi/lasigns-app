@@ -560,6 +560,7 @@ function RetailPageInner() {
     const retailCompany = tagValue(job.notes, 'RETAIL_COMPANY') || retailCompanyName(job.store, job.branch)
     return {
       ...job,
+      notes: stripRetailTags(job.notes),
       client: {
         ...(job.client || {}),
         company: retailCompany,
