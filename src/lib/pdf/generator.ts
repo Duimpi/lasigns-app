@@ -305,38 +305,65 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // Comments + Totals box
   const bottomY = y
-  const bottomH = 21
+  const bottomH = showPrices ? 32 : 21
   const totalsX = xOffset + m + iW - 42
   const totalsW = 42
 
-  // Comments label
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Comments:', xOffset + m + 1, bottomY + 5)
+  const wrapCommentLines = (value: string | undefined, width: number, limit: number) => {
+    const rawLines = String(value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+    return rawLines.flatMap(line => doc.splitTextToSize(line, width)).slice(0, limit)
+  }
 
-  const commentWidth = (showPrices ? iW : totalsX - (xOffset + m) - 2) - 3
-  const commentParts = [job.description, job.notes].map(part => String(part || '').trim()).filter(Boolean)
-  const commentLines = commentParts.length
-    ? doc.splitTextToSize(commentParts.join(' | '), commentWidth).slice(0, 3)
-    : []
-  if (commentLines.length) {
+  if (showPrices) {
+    const colGap = 4
+    const colW = (iW - colGap) / 2
+    const leftX = xOffset + m + 1
+    const rightX = xOffset + m + colW + colGap + 1
+    const descLines = wrapCommentLines(job.description, colW - 3, 7)
+    const noteLines = wrapCommentLines(job.notes, colW - 3, 7)
+
+    doc.setFontSize(6.4)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Comments:', leftX, bottomY + 5)
+    doc.text('Notes:', rightX, bottomY + 5)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(5.8)
     doc.setTextColor(0, 0, 0)
-    doc.text(commentLines, xOffset + m + 1, bottomY + 8.4)
-  }
+    if (descLines.length) doc.text(descLines, leftX, bottomY + 9)
+    if (noteLines.length) doc.text(noteLines, rightX, bottomY + 9)
+    doc.setDrawColor(180, 180, 180)
+    doc.setLineWidth(0.2)
+    doc.line(xOffset + m + colW + colGap / 2, bottomY, xOffset + m + colW + colGap / 2, bottomY + bottomH)
+  } else {
+    // Comments label
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Comments:', xOffset + m + 1, bottomY + 5)
 
-  // Comment lines (dotted)
-  doc.setLineDashPattern([0.5, 0.5], 0)
-  doc.setDrawColor(150, 150, 150)
-  doc.setLineWidth(0.2)
-  for (let i = 0; i < 2; i++) {
-    const ly = bottomY + 10 + i * 5
-    if (!commentLines.length) {
-      doc.line(xOffset + m + 1, ly, (showPrices ? xOffset + m + iW - 1 : totalsX - 2), ly)
+    const commentWidth = totalsX - (xOffset + m) - 5
+    const commentParts = [job.description, job.notes].map(part => String(part || '').trim()).filter(Boolean)
+    const commentLines = commentParts.length
+      ? doc.splitTextToSize(commentParts.join(' | '), commentWidth).slice(0, 3)
+      : []
+    if (commentLines.length) {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(5.8)
+      doc.setTextColor(0, 0, 0)
+      doc.text(commentLines, xOffset + m + 1, bottomY + 8.4)
     }
+
+    // Comment lines (dotted)
+    doc.setLineDashPattern([0.5, 0.5], 0)
+    doc.setDrawColor(150, 150, 150)
+    doc.setLineWidth(0.2)
+    for (let i = 0; i < 2; i++) {
+      const ly = bottomY + 10 + i * 5
+      if (!commentLines.length) {
+        doc.line(xOffset + m + 1, ly, totalsX - 2, ly)
+      }
+    }
+    doc.setLineDashPattern([], 0)
   }
-  doc.setLineDashPattern([], 0)
 
   if (!showPrices) {
     // Vertical separator before totals
