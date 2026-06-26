@@ -37,6 +37,63 @@ function numberValue(value: unknown) {
   return Number.isFinite(n) ? n : 0
 }
 
+function tagValue(notes: string | null | undefined, key: string) {
+  const match = String(notes || '').match(new RegExp('\\[LA_' + key + ':([^\\]]*)\\]', 'i'))
+  if (!match?.[1]) return ''
+  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+}
+
+function courierPaymentLabel(value?: string) {
+  if (value === 'we_pay') return 'We pay'
+  if (value === 'account') return 'Account'
+  return 'Pay on Delivery'
+}
+
+function fulfillmentLinesFromNotes(notes?: string | null) {
+  const text = String(notes || '')
+  if (text.includes('[LA_DELIVERY_PENDING]') || text.includes('[LA_DELIVERY_DELIVERED]')) {
+    return [
+      'Fulfilment: Delivery',
+      tagValue(text, 'DELIVERY_NAME') ? `Contact: ${tagValue(text, 'DELIVERY_NAME')}` : '',
+      tagValue(text, 'DELIVERY_NUMBER') ? `Cell: ${tagValue(text, 'DELIVERY_NUMBER')}` : '',
+      tagValue(text, 'DELIVERY_ADDRESS') ? `Address: ${tagValue(text, 'DELIVERY_ADDRESS')}` : '',
+    ].filter(Boolean)
+  }
+  if (text.includes('[LA_COURIER_PENDING]') || text.includes('[LA_COURIER_COURIERED]')) {
+    return [
+      'Fulfilment: Courier',
+      tagValue(text, 'COURIER_COMPANY') ? `Courier: ${tagValue(text, 'COURIER_COMPANY')}` : '',
+      tagValue(text, 'COURIER_CONTACT') ? `Contact: ${tagValue(text, 'COURIER_CONTACT')}` : '',
+      tagValue(text, 'COURIER_ADDRESS') ? `Address: ${tagValue(text, 'COURIER_ADDRESS')}` : '',
+      `Payment: ${courierPaymentLabel(tagValue(text, 'COURIER_PAYMENT'))}`,
+      tagValue(text, 'COURIER_NOTES') ? `Notes: ${tagValue(text, 'COURIER_NOTES')}` : '',
+    ].filter(Boolean)
+  }
+  if (text.includes('[LA_INSTALL_PENDING]') || text.includes('[LA_INSTALL_DONE]')) {
+    return [
+      'Fulfilment: Installation / Application',
+      tagValue(text, 'INSTALL_CONTACT') ? `Contact: ${tagValue(text, 'INSTALL_CONTACT')}` : '',
+      tagValue(text, 'INSTALL_NUMBER') ? `Cell: ${tagValue(text, 'INSTALL_NUMBER')}` : '',
+      tagValue(text, 'INSTALL_ADDRESS') ? `Address: ${tagValue(text, 'INSTALL_ADDRESS')}` : '',
+      tagValue(text, 'INSTALL_DATE') ? `Preferred: ${tagValue(text, 'INSTALL_DATE')}` : '',
+      tagValue(text, 'INSTALL_NOTES') ? `Notes: ${tagValue(text, 'INSTALL_NOTES')}` : '',
+    ].filter(Boolean)
+  }
+  if (text.includes('[LA_COLLECTION_PENDING]') || text.includes('[LA_COLLECTION_COLLECTED]')) {
+    return ['Fulfilment: Client collection']
+  }
+  return []
+}
+
+function visibleNotes(notes?: string | null) {
+  return String(notes || '')
+    .replace(/\[LA_(COLLECTION|DELIVERY|COURIER|INSTALL)_[^\]]+\]/gi, '')
+    .replace(/\[LA_(DELIVERY|COURIER|INSTALL)_[A-Z_]+:[^\]]*\]/gi, '')
+    .replace(/(Collected|Delivered|Couriered|Installed \/ Applied) on .+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function quoteLineSubtotal(quote: { items?: any[] }) {
   return (quote.items || []).reduce((sum, item) => {
     const lineTotal = numberValue(item.line_total || item.total || numberValue(item.quantity) * numberValue(item.unit_price))
@@ -159,7 +216,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.text('Company:', xOffset + m + 1, y + 4)
   doc.setFont('helvetica', 'normal')
   const companyVal = job.client?.company || ''
-  doc.setFontSize(7.5)
+  doc.setFontSize(8)
   doc.setFont('helvetica', 'bold')
   doc.text(companyVal, xOffset + m + 17, y + 4)
 
@@ -172,7 +229,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(6.5)
   doc.text('Client:', xOffset + m + 78, y + 4)
-  doc.setFontSize(7.5)
+  doc.setFontSize(8)
   const clientVal = job.client_name || ''
   doc.text(clientVal, xOffset + m + 90, y + 4)
   doc.line(xOffset + m + 90, y + 5, xOffset + m + iW, y + 5)
@@ -187,7 +244,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setFont('helvetica', 'normal')
   // Get primary phone from client
   const phone = job.client?.phones?.[0]?.phone || ''
-  doc.setFontSize(7)
+  doc.setFontSize(7.4)
   doc.text(phone, xOffset + m + 14, y + 4)
 
   doc.setLineDashPattern([0.5, 0.5], 0)
@@ -268,7 +325,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
       // Description allows 2 lines, or 1 line plus an item note.
       const descLines = doc.splitTextToSize(item.description, COL.material.w - 3)
       const itemNote = String((item as any).note || '').trim()
-      doc.setFontSize(7.5)
+      doc.setFontSize(7.8)
       if (itemNote) {
         doc.text(descLines[0] || '', COL.material.x + 1, rowY + 2.9)
       } else if (descLines.length > 1) {
@@ -279,13 +336,13 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
       }
       if (itemNote) {
         const noteLines = doc.splitTextToSize(itemNote, COL.material.w - 3)
-        doc.setFontSize(5.6)
+        doc.setFontSize(5.8)
         doc.setTextColor(70, 70, 70)
         doc.text(noteLines[0] || '', COL.material.x + 1, rowY + 5.4)
         doc.setTextColor(0, 0, 0)
       }
       if (showPrices) {
-        doc.setFontSize(6.6)
+        doc.setFontSize(7)
         doc.text(formatCurrency(numberValue(item.unit_price)), COL.unit.x + COL.unit.w - 1, rowY + 4.6, { align: 'right' })
       }
     }
@@ -320,12 +377,16 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     const leftX = xOffset + m + 1
     const rightX = xOffset + m + colW + colGap + 1
     const descLines = wrapCommentLines(job.description, colW - 3, 7)
-    const noteLines = wrapCommentLines(job.notes, colW - 3, 7)
+    const fulfillmentLines = fulfillmentLinesFromNotes(job.notes)
+    const noteLines = [
+      ...fulfillmentLines,
+      ...wrapCommentLines(visibleNotes(job.notes), colW - 3, 7),
+    ].slice(0, 7)
 
     doc.setFontSize(6.4)
     doc.setFont('helvetica', 'bold')
     doc.text('Comments:', leftX, bottomY + 5)
-    doc.text('Notes:', rightX, bottomY + 5)
+    doc.text(fulfillmentLines.length ? 'Fulfilment / Notes:' : 'Notes:', rightX, bottomY + 5)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(5.8)
     doc.setTextColor(0, 0, 0)
@@ -341,7 +402,8 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     doc.text('Comments:', xOffset + m + 1, bottomY + 5)
 
     const commentWidth = totalsX - (xOffset + m) - 5
-    const commentParts = [job.description, job.notes].map(part => String(part || '').trim()).filter(Boolean)
+    const fulfillmentText = fulfillmentLinesFromNotes(job.notes).join(' | ')
+    const commentParts = [fulfillmentText, job.description, visibleNotes(job.notes)].map(part => String(part || '').trim()).filter(Boolean)
     const commentLines = commentParts.length
       ? doc.splitTextToSize(commentParts.join(' | '), commentWidth).slice(0, 3)
       : []
@@ -515,6 +577,7 @@ type QuoteJobCardPrintInput = {
   notes?: string | null
   valid_until?: string | null
   assigned_worker?: string | null
+  fulfillment_lines?: string[]
   items?: { description: string; quantity: number; unit_price?: number; total?: number; line_total?: number; size?: string | null }[]
   created_at?: string
 }
@@ -599,7 +662,7 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.setFontSize(6.5)
   doc.setFont('helvetica', 'bold')
   doc.text('Client:', xOffset + m + 1, y + 4)
-  doc.setFontSize(7.2)
+  doc.setFontSize(7.8)
   doc.text(quote.client_name || '', xOffset + m + 14, y + 4)
   doc.setLineDashPattern([0.5, 0.5], 0)
   doc.line(xOffset + m + 14, y + 5, xOffset + m + iW, y + 5)
@@ -610,7 +673,7 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.setFont('helvetica', 'bold')
   doc.text('Tel/Cell:', xOffset + m + 1, y + 4)
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.8)
+  doc.setFontSize(7.2)
   doc.text(quote.client_phone || '', xOffset + m + 14, y + 4)
   doc.setLineDashPattern([0.5, 0.5], 0)
   doc.line(xOffset + m + 14, y + 5, xOffset + m + 65, y + 5)
@@ -679,16 +742,16 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
     if (item) {
       const lineTotal = numberValue(item.line_total || item.total || numberValue(item.quantity) * numberValue(item.unit_price))
       doc.setTextColor(0, 0, 0)
-      doc.setFontSize(7.2)
+      doc.setFontSize(7.8)
       doc.setFont('helvetica', 'bold')
       doc.text(String(item.quantity || ''), COL.qty.x + 1, rowY + 4.6)
       doc.setFont('helvetica', 'normal')
       doc.text(item.size || '', COL.size.x + 1, rowY + 4.6)
       const descLines = doc.splitTextToSize(item.description || '', COL.desc.w - 2)
-      doc.setFontSize(6.8)
+      doc.setFontSize(7.2)
       doc.text(descLines[0] || '', COL.desc.x + 1, rowY + 3.2)
       if (descLines[1]) doc.text(descLines[1], COL.desc.x + 1, rowY + 6.2)
-      doc.setFontSize(6.6)
+      doc.setFontSize(7)
       doc.text(formatCurrency(numberValue(item.unit_price)), COL.unit.x + COL.unit.w - 1, rowY + 5, { align: 'right' })
       doc.text(formatCurrency(lineTotal), COL.total.x + COL.total.w - 1, rowY + 5, { align: 'right' })
     }
@@ -713,7 +776,9 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.text('Notes:', xOffset + m + 1, bottomY + 5)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  const notesLines = isLastPage && quote.notes ? doc.splitTextToSize(quote.notes, totalsX - (xOffset + m) - 4).slice(0, 2) : []
+  const fulfillmentLines = isLastPage ? (quote.fulfillment_lines || []) : []
+  const noteText = [fulfillmentLines.join('\n'), quote.notes || ''].filter(Boolean).join('\n')
+  const notesLines = isLastPage && noteText ? doc.splitTextToSize(noteText, totalsX - (xOffset + m) - 4).slice(0, 6) : []
   if (notesLines.length) doc.text(notesLines, xOffset + m + 1, bottomY + 9)
   else if (!isLastPage) doc.text('Continued on next page', xOffset + m + 1, bottomY + 9)
 

@@ -286,6 +286,42 @@ function ReceptionPageInner() {
     try { return decodeURIComponent(match[1]) } catch { return match[1] }
   }
 
+  function courierPaymentLabel(value?: string) {
+    if (value === 'we_pay') return 'We pay'
+    if (value === 'account') return 'Account'
+    return 'Pay on Delivery'
+  }
+
+  function fulfillmentRows(item: CollectionItem, type: 'delivery' | 'courier' | 'installation') {
+    if (type === 'delivery') {
+      return [
+        ['Fulfilment', 'Delivery'],
+        ['Contact', getNoteValue(item.notes, 'DELIVERY_NAME') || item.client_name || 'Unknown'],
+        ['Cell', getNoteValue(item.notes, 'DELIVERY_NUMBER')],
+        ['Address', getNoteValue(item.notes, 'DELIVERY_ADDRESS')],
+      ].filter(([, value]) => value)
+    }
+    if (type === 'courier') {
+      return [
+        ['Fulfilment', 'Courier'],
+        ['Courier', getNoteValue(item.notes, 'COURIER_COMPANY') || 'Courier'],
+        ['Contact', getNoteValue(item.notes, 'COURIER_CONTACT')],
+        ['Address', getNoteValue(item.notes, 'COURIER_ADDRESS')],
+        ['Payment', courierPaymentLabel(getNoteValue(item.notes, 'COURIER_PAYMENT'))],
+        ['Notes', getNoteValue(item.notes, 'COURIER_NOTES')],
+      ].filter(([, value]) => value)
+    }
+    return [
+      ['Fulfilment', 'Installation / Application'],
+      ['Contact', getNoteValue(item.notes, 'INSTALL_CONTACT') || item.client_name || 'Unknown'],
+      ['Cell', getNoteValue(item.notes, 'INSTALL_NUMBER')],
+      ['Address', getNoteValue(item.notes, 'INSTALL_ADDRESS')],
+      ['Preferred', getNoteValue(item.notes, 'INSTALL_DATE')],
+      ['Notes', getNoteValue(item.notes, 'INSTALL_NOTES')],
+      ['Applicator', 'Wilvert'],
+    ].filter(([, value]) => value)
+  }
+
   function makeNoteTag(key: string, value?: string | null) {
     const clean = String(value || '').trim()
     return clean ? '[LA_' + key + ':' + encodeURIComponent(clean) + ']' : ''
@@ -606,6 +642,28 @@ function ReceptionPageInner() {
           </div>
         </div>
 
+        {(collectionItems.length + deliveryItems.length + courierItems.length + installItems.length + quotePaymentItems.length) > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {[
+              { key: 'collection', label: 'Collections', count: collectionItems.length, tone: 'border-blue-500 text-blue-300' },
+              { key: 'delivery', label: 'Delivery', count: deliveryItems.length, tone: 'border-emerald-500 text-emerald-300' },
+              { key: 'courier', label: 'Courier', count: courierItems.length, tone: 'border-purple-500 text-purple-300' },
+              { key: 'installation', label: 'Installation', count: installItems.length, tone: 'border-orange-500 text-orange-300' },
+              { key: 'quote_payments', label: 'Quote Payments', count: quotePaymentItems.length, tone: 'border-accent text-accent' },
+            ].filter(item => item.count > 0).map(item => (
+              <button
+                key={item.key}
+                onClick={() => setTab(item.key as Tab)}
+                className={`card p-4 text-left border-l-4 ${item.tone} hover:bg-bg-hover transition-colors`}
+              >
+                <p className="text-xs uppercase tracking-wide text-text-muted">Needs Action</p>
+                <p className="mt-1 text-2xl font-bold">{item.count}</p>
+                <p className="text-sm font-semibold text-text-primary">{item.label}</p>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-1 border-b border-border overflow-x-auto">
           {[
@@ -730,8 +788,11 @@ function ReceptionPageInner() {
                   <div className="flex-1 min-w-0">
                     <span className="font-mono text-xs text-accent">{item.job_number}</span>
                     <p className="font-semibold text-text-primary mt-1">{getNoteValue(item.notes, 'DELIVERY_NAME') || item.client_name || 'Unknown'}</p>
-                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'DELIVERY_NUMBER')}</p>
-                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'DELIVERY_ADDRESS')}</p>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                      {fulfillmentRows(item, 'delivery').map(([label, value]) => (
+                        <p key={label} className="text-sm text-text-secondary"><span className="text-text-muted">{label}:</span> {value}</p>
+                      ))}
+                    </div>
                     <p className="text-xs text-text-muted mt-1">{item.title}</p>
                   </div>
                   <button onClick={() => markFulfillmentDone(item, DELIVERY_PENDING_TAG, DELIVERY_DELIVERED_TAG, 'Delivered')} className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-sm transition-colors">
@@ -752,6 +813,11 @@ function ReceptionPageInner() {
                       <div className="flex-1 min-w-0">
                         <span className="font-mono text-xs text-accent">{item.job_number}</span>
                         <p className="font-semibold text-text-primary">{getNoteValue(item.notes, 'DELIVERY_NAME') || item.client_name || 'Unknown'}</p>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                          {fulfillmentRows(item, 'delivery').map(([label, value]) => (
+                            <p key={label} className="text-sm text-text-secondary"><span className="text-text-muted">{label}:</span> {value}</p>
+                          ))}
+                        </div>
                         <p className="text-xs text-text-muted">{item.title}</p>
                       </div>
                       <button onClick={() => deleteFulfillmentHistory(item, DELIVERY_PENDING_TAG, DELIVERY_DELIVERED_TAG, 'Delivered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
@@ -778,9 +844,11 @@ function ReceptionPageInner() {
                   <div className="flex-1 min-w-0">
                     <span className="font-mono text-xs text-accent">{item.job_number}</span>
                     <p className="font-semibold text-text-primary mt-1">{getNoteValue(item.notes, 'COURIER_COMPANY') || 'Courier'}</p>
-                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'COURIER_CONTACT')}</p>
-                    <p className="text-sm text-text-muted">{getNoteValue(item.notes, 'COURIER_ADDRESS')}</p>
-                    <p className="text-xs text-text-muted mt-1">{getNoteValue(item.notes, 'COURIER_PAYMENT') === 'we_pay' ? 'We pay' : 'Pay on Delivery'}</p>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                      {fulfillmentRows(item, 'courier').map(([label, value]) => (
+                        <p key={label} className="text-sm text-text-secondary"><span className="text-text-muted">{label}:</span> {value}</p>
+                      ))}
+                    </div>
                   </div>
                   <button onClick={() => markFulfillmentDone(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors">
                     <CheckCheck className="w-4 h-4" /> Couriered
@@ -800,6 +868,11 @@ function ReceptionPageInner() {
                       <div className="flex-1 min-w-0">
                         <span className="font-mono text-xs text-accent">{item.job_number}</span>
                         <p className="font-semibold text-text-primary">{getNoteValue(item.notes, 'COURIER_COMPANY') || 'Courier'}</p>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                          {fulfillmentRows(item, 'courier').map(([label, value]) => (
+                            <p key={label} className="text-sm text-text-secondary"><span className="text-text-muted">{label}:</span> {value}</p>
+                          ))}
+                        </div>
                         <p className="text-xs text-text-muted">{item.title}</p>
                       </div>
                       <button onClick={() => deleteFulfillmentHistory(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">

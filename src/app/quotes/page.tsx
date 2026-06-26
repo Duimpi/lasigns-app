@@ -79,7 +79,8 @@ const quoteSchema = z.object({
   courier_company: z.string().optional().default(''),
   courier_address: z.string().optional().default(''),
   courier_contact_person: z.string().optional().default(''),
-  courier_payment: z.enum(['pay_on_delivery', 'we_pay']).default('pay_on_delivery'),
+  courier_payment: z.enum(['pay_on_delivery', 'we_pay', 'account']).default('pay_on_delivery'),
+  courier_notes: z.string().optional().default(''),
   install_address: z.string().optional().default(''),
   install_contact_person: z.string().optional().default(''),
   install_contact_number: z.string().optional().default(''),
@@ -131,7 +132,7 @@ function stripFulfillmentTags(notes?: string | null) {
   FULFILLMENT_TAGS.forEach(tag => { clean = clean.replaceAll(tag, '') })
   clean = clean
     .replace(/\[LA_DELIVERY_(NAME|NUMBER|ADDRESS):[^\]]*\]/gi, '')
-    .replace(/\[LA_COURIER_(COMPANY|ADDRESS|CONTACT|PAYMENT):[^\]]*\]/gi, '')
+    .replace(/\[LA_COURIER_(COMPANY|ADDRESS|CONTACT|PAYMENT|NOTES):[^\]]*\]/gi, '')
     .replace(/\[LA_INSTALL_(ADDRESS|CONTACT|NUMBER|DATE|NOTES):[^\]]*\]/gi, '')
     .replace(/(Collected|Delivered|Couriered|Installed \/ Applied) on .+$/gm, '')
   return clean.trim()
@@ -158,6 +159,7 @@ function getFulfillmentDetails(notes?: string | null) {
     courier_address: tagValue(text, 'COURIER_ADDRESS'),
     courier_contact_person: tagValue(text, 'COURIER_CONTACT'),
     courier_payment: tagValue(text, 'COURIER_PAYMENT') || 'pay_on_delivery',
+    courier_notes: tagValue(text, 'COURIER_NOTES'),
     install_address: tagValue(text, 'INSTALL_ADDRESS'),
     install_contact_person: tagValue(text, 'INSTALL_CONTACT'),
     install_contact_number: tagValue(text, 'INSTALL_NUMBER'),
@@ -186,6 +188,7 @@ function fulfillmentTagsForQuote(data: QuoteFormData) {
       makeTag('COURIER_ADDRESS', data.courier_address),
       makeTag('COURIER_CONTACT', data.courier_contact_person),
       makeTag('COURIER_PAYMENT', data.courier_payment),
+      makeTag('COURIER_NOTES', data.courier_notes),
     )
   }
   if (method === 'installation') {
@@ -261,11 +264,42 @@ function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
 }
 
 function quoteForPrint(quote: QuoteWithItems) {
+  const sourceNotes = quote.raw_notes || quote.notes
+  const fulfillment = getFulfillmentDetails(sourceNotes)
+  const fulfillmentLines = fulfillment.method === 'delivery'
+    ? [
+        'Fulfilment: Delivery',
+        fulfillment.delivery_name ? `Contact: ${fulfillment.delivery_name}` : '',
+        fulfillment.delivery_number ? `Cell: ${fulfillment.delivery_number}` : '',
+        fulfillment.delivery_address ? `Address: ${fulfillment.delivery_address}` : '',
+      ].filter(Boolean)
+    : fulfillment.method === 'courier'
+      ? [
+          'Fulfilment: Courier',
+          fulfillment.courier_company ? `Courier: ${fulfillment.courier_company}` : '',
+          fulfillment.courier_contact_person ? `Contact: ${fulfillment.courier_contact_person}` : '',
+          fulfillment.courier_address ? `Address: ${fulfillment.courier_address}` : '',
+          `Payment: ${fulfillment.courier_payment === 'we_pay' ? 'We pay' : fulfillment.courier_payment === 'account' ? 'Account' : 'Pay on Delivery'}`,
+          fulfillment.courier_notes ? `Notes: ${fulfillment.courier_notes}` : '',
+        ].filter(Boolean)
+      : fulfillment.method === 'installation'
+        ? [
+            'Fulfilment: Installation / Application',
+            fulfillment.install_contact_person ? `Contact: ${fulfillment.install_contact_person}` : '',
+            fulfillment.install_contact_number ? `Cell: ${fulfillment.install_contact_number}` : '',
+            fulfillment.install_address ? `Address: ${fulfillment.install_address}` : '',
+            fulfillment.install_preferred_date ? `Preferred: ${fulfillment.install_preferred_date}` : '',
+            fulfillment.install_notes ? `Notes: ${fulfillment.install_notes}` : '',
+          ].filter(Boolean)
+        : fulfillment.method === 'collection'
+          ? ['Fulfilment: Client collection']
+          : []
   return {
     ...quote,
     notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
     client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
+    fulfillment_lines: fulfillmentLines,
   }
 }
 
@@ -295,7 +329,7 @@ function QuotesPageInner() {
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
-      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery', courier_notes: '',
       install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     },
@@ -384,7 +418,7 @@ function QuotesPageInner() {
       client_name: '', client_email: '', client_address: '',
       status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
-      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery',
+      courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery', courier_notes: '',
       install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
       items: [{ description: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
@@ -416,6 +450,7 @@ function QuotesPageInner() {
       courier_address: fulfillment.courier_address,
       courier_contact_person: fulfillment.courier_contact_person,
       courier_payment: fulfillment.courier_payment as QuoteFormData['courier_payment'],
+      courier_notes: fulfillment.courier_notes,
       install_address: fulfillment.install_address,
       install_contact_person: fulfillment.install_contact_person,
       install_contact_number: fulfillment.install_contact_number,
@@ -950,7 +985,12 @@ function QuotesPageInner() {
                   <select {...register('courier_payment')} className="input max-w-xs">
                     <option value="pay_on_delivery">Pay on Delivery</option>
                     <option value="we_pay">We pay</option>
+                    <option value="account">Account</option>
                   </select>
+                </div>
+                <div>
+                  <label className="label">Courier Notes / Delivery Address</label>
+                  <textarea {...register('courier_notes')} className="input min-h-[90px] resize-y overflow-y-auto" placeholder="Extra courier instructions, delivery address, reference number, or account details..." />
                 </div>
               </div>
             )}
