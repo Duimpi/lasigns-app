@@ -52,35 +52,33 @@ function courierPaymentLabel(value?: string) {
 function fulfillmentLinesFromNotes(notes?: string | null) {
   const text = String(notes || '')
   if (text.includes('[LA_DELIVERY_PENDING]') || text.includes('[LA_DELIVERY_DELIVERED]')) {
-    return [
-      'Fulfilment: Delivery',
+    const detailLines = [
       tagValue(text, 'DELIVERY_NAME') ? `Contact: ${tagValue(text, 'DELIVERY_NAME')}` : '',
       tagValue(text, 'DELIVERY_NUMBER') ? `Cell: ${tagValue(text, 'DELIVERY_NUMBER')}` : '',
       tagValue(text, 'DELIVERY_ADDRESS') ? `Address: ${tagValue(text, 'DELIVERY_ADDRESS')}` : '',
     ].filter(Boolean)
+    return detailLines.length ? ['Fulfilment: Delivery', ...detailLines] : []
   }
   if (text.includes('[LA_COURIER_PENDING]') || text.includes('[LA_COURIER_COURIERED]')) {
-    return [
-      'Fulfilment: Courier',
+    const payment = tagValue(text, 'COURIER_PAYMENT')
+    const detailLines = [
       tagValue(text, 'COURIER_COMPANY') ? `Courier: ${tagValue(text, 'COURIER_COMPANY')}` : '',
       tagValue(text, 'COURIER_CONTACT') ? `Contact: ${tagValue(text, 'COURIER_CONTACT')}` : '',
       tagValue(text, 'COURIER_ADDRESS') ? `Address: ${tagValue(text, 'COURIER_ADDRESS')}` : '',
-      `Payment: ${courierPaymentLabel(tagValue(text, 'COURIER_PAYMENT'))}`,
+      payment ? `Payment: ${courierPaymentLabel(payment)}` : '',
       tagValue(text, 'COURIER_NOTES') ? `Notes: ${tagValue(text, 'COURIER_NOTES')}` : '',
     ].filter(Boolean)
+    return detailLines.length ? ['Fulfilment: Courier', ...detailLines] : []
   }
   if (text.includes('[LA_INSTALL_PENDING]') || text.includes('[LA_INSTALL_DONE]')) {
-    return [
-      'Fulfilment: Installation / Application',
+    const detailLines = [
       tagValue(text, 'INSTALL_CONTACT') ? `Contact: ${tagValue(text, 'INSTALL_CONTACT')}` : '',
       tagValue(text, 'INSTALL_NUMBER') ? `Cell: ${tagValue(text, 'INSTALL_NUMBER')}` : '',
       tagValue(text, 'INSTALL_ADDRESS') ? `Address: ${tagValue(text, 'INSTALL_ADDRESS')}` : '',
       tagValue(text, 'INSTALL_DATE') ? `Preferred: ${tagValue(text, 'INSTALL_DATE')}` : '',
       tagValue(text, 'INSTALL_NOTES') ? `Notes: ${tagValue(text, 'INSTALL_NOTES')}` : '',
     ].filter(Boolean)
-  }
-  if (text.includes('[LA_COLLECTION_PENDING]') || text.includes('[LA_COLLECTION_COLLECTED]')) {
-    return ['Fulfilment: Client collection']
+    return detailLines.length ? ['Fulfilment: Installation / Application', ...detailLines] : []
   }
   return []
 }

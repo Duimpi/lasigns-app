@@ -4,6 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Users, FileText, Briefcase,
@@ -36,10 +37,54 @@ const reportsItems = [
   { href: '/reports', icon: BarChart3, label: 'Reports' },
 ]
 
+const RECEPTION_PENDING_TAGS = [
+  ['[LA_COLLECTION_PENDING]', '[LA_COLLECTION_COLLECTED]'],
+  ['[LA_DELIVERY_PENDING]', '[LA_DELIVERY_DELIVERED]'],
+  ['[LA_COURIER_PENDING]', '[LA_COURIER_COURIERED]'],
+  ['[LA_INSTALL_PENDING]', '[LA_INSTALL_DONE]'],
+]
+
+function countReceptionWork(rows: any[] = []) {
+  return rows.filter(row => {
+    const notes = String(row.notes || '')
+    return RECEPTION_PENDING_TAGS.some(([pending, done]) => notes.includes(pending) && !notes.includes(done))
+  }).length
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const { profile } = useAuthStore()
   const router = useRouter()
+  const [receptionCount, setReceptionCount] = useState(0)
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadReceptionCount() {
+      const [quotesResult, jobsResult] = await Promise.all([
+        supabase
+          .from('quotes')
+          .select('id, notes')
+          .eq('status', 'completed')
+          .eq('is_retail', false),
+        supabase
+          .from('job_cards')
+          .select('id, notes')
+          .eq('status', 'completed'),
+      ])
+
+      if (!isMounted) return
+      const count = countReceptionWork(quotesResult.data || []) + countReceptionWork(jobsResult.data || [])
+      setReceptionCount(count)
+    }
+
+    loadReceptionCount()
+    const timer = window.setInterval(loadReceptionCount, 60000)
+    return () => {
+      isMounted = false
+      window.clearInterval(timer)
+    }
+  }, [])
 
   async function handleLogout() {
     try {
@@ -83,6 +128,11 @@ export function Sidebar() {
               )}
               <item.icon className={cn('w-4 h-4 relative z-10', isActive && 'text-accent')} />
               <span className="relative z-10">{item.label}</span>
+              {item.href === '/reception' && receptionCount > 0 && (
+                <span className="relative z-10 ml-auto min-w-5 h-5 px-1.5 rounded-full bg-accent text-text-inverse text-[11px] font-bold flex items-center justify-center">
+                  {receptionCount}
+                </span>
+              )}
             </Link>
           )
         })}

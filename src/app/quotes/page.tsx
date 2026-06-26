@@ -266,34 +266,32 @@ function normalizeQuoteForUi(quote: QuoteWithItems): QuoteWithItems {
 function quoteForPrint(quote: QuoteWithItems) {
   const sourceNotes = quote.raw_notes || quote.notes
   const fulfillment = getFulfillmentDetails(sourceNotes)
-  const fulfillmentLines = fulfillment.method === 'delivery'
-    ? [
-        'Fulfilment: Delivery',
+  const deliveryLines = [
         fulfillment.delivery_name ? `Contact: ${fulfillment.delivery_name}` : '',
         fulfillment.delivery_number ? `Cell: ${fulfillment.delivery_number}` : '',
         fulfillment.delivery_address ? `Address: ${fulfillment.delivery_address}` : '',
       ].filter(Boolean)
-    : fulfillment.method === 'courier'
-      ? [
-          'Fulfilment: Courier',
+  const courierLines = [
           fulfillment.courier_company ? `Courier: ${fulfillment.courier_company}` : '',
           fulfillment.courier_contact_person ? `Contact: ${fulfillment.courier_contact_person}` : '',
           fulfillment.courier_address ? `Address: ${fulfillment.courier_address}` : '',
-          `Payment: ${fulfillment.courier_payment === 'we_pay' ? 'We pay' : fulfillment.courier_payment === 'account' ? 'Account' : 'Pay on Delivery'}`,
+          fulfillment.courier_payment ? `Payment: ${fulfillment.courier_payment === 'we_pay' ? 'We pay' : fulfillment.courier_payment === 'account' ? 'Account' : 'Pay on Delivery'}` : '',
           fulfillment.courier_notes ? `Notes: ${fulfillment.courier_notes}` : '',
         ].filter(Boolean)
-      : fulfillment.method === 'installation'
-        ? [
-            'Fulfilment: Installation / Application',
+  const installLines = [
             fulfillment.install_contact_person ? `Contact: ${fulfillment.install_contact_person}` : '',
             fulfillment.install_contact_number ? `Cell: ${fulfillment.install_contact_number}` : '',
             fulfillment.install_address ? `Address: ${fulfillment.install_address}` : '',
             fulfillment.install_preferred_date ? `Preferred: ${fulfillment.install_preferred_date}` : '',
             fulfillment.install_notes ? `Notes: ${fulfillment.install_notes}` : '',
           ].filter(Boolean)
-        : fulfillment.method === 'collection'
-          ? ['Fulfilment: Client collection']
-          : []
+  const fulfillmentLines = fulfillment.method === 'delivery' && deliveryLines.length
+    ? ['Fulfilment: Delivery', ...deliveryLines]
+    : fulfillment.method === 'courier' && courierLines.length
+      ? ['Fulfilment: Courier', ...courierLines]
+      : fulfillment.method === 'installation' && installLines.length
+        ? ['Fulfilment: Installation / Application', ...installLines]
+        : []
   return {
     ...quote,
     notes: stripQuoteHiddenTags(quote.notes),
