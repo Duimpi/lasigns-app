@@ -29,6 +29,14 @@ const ACTIVE_STATUSES: JobCardStatus[] = ['pending', 'designing', 'printing', 'i
 const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
+const SHOPRITE_CHICRITE_BRANCHES = [
+  'Shoprite Grootfontein ChicRite',
+  'Shoprite Goreangab ChicRite',
+  'Shoprite Independence ChicRite',
+  'Shoprite Lafrenz ChicRite',
+  'Shoprite Katima Mulilo ChicRite',
+  'Shoprite Rundu ChicRite',
+]
 
 const lineItemSchema = z.object({
   description: z.string().default(''),
@@ -240,10 +248,18 @@ function RetailPageInner() {
   async function loadBranches() {
     const { data } = await supabase.from('retail_branches').select('*').order('store').order('name')
     const dbBranches = (data as RetailBranch[]) || []
+    const withChicRiteBranches = (list: RetailBranch[]) => {
+      const existing = new Set(list.map(branch => `${branch.store}:${branch.name}`))
+      const missing = SHOPRITE_CHICRITE_BRANCHES
+        .filter(name => !existing.has(`Shoprite:${name}`))
+        .map(name => ({ id: `shoprite-chicrite-${name}`, store: 'Shoprite' as RetailStore, name, is_liquor: false }))
+      return [...list, ...missing].sort((a, b) => a.store.localeCompare(b.store) || a.name.localeCompare(b.name))
+    }
     if (dbBranches.length > 0) {
-      setBranches(dbBranches)
+      setBranches(withChicRiteBranches(dbBranches))
     } else {
       const fallback: RetailBranch[] = [
+        ...SHOPRITE_CHICRITE_BRANCHES.map(name => ({ id: `shoprite-chicrite-${name}`, store: 'Shoprite' as RetailStore, name, is_liquor: false })),
         ...[
           'Ausspannplatz', 'Brakwater', 'Gobabis', 'Grootfontein', 'Katutura',
           'Keetmanshoop', 'Khomasdal', 'Lüderitz', 'Mariental', 'Okahao',
