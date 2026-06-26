@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { StaffJobsPanel } from '@/components/staff/StaffJobsPanel'
 import { MessagingWindow } from '@/components/messaging/MessagingWindow'
+import { ReceptionDispatchAlerts } from '@/components/reception/ReceptionDispatchAlerts'
 import { useAuthStore } from '@/stores/authStore'
 import { supabase } from '@/lib/supabase/client'
 
@@ -80,6 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 <div className="min-h-screen pb-24">{children}</div>
       </main>
       <div className="fixed bottom-4 right-4 z-40 flex flex-row items-end gap-2">
+        <ReceptionDispatchAlerts />
         <MessagingWindow />
         <StaffJobsPanel />
       </div>

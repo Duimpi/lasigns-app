@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { supabase } from '@/lib/supabase/client'
@@ -72,6 +73,7 @@ interface QuotePaymentItem {
 
 function ReceptionPageInner() {
   const { profile } = useAuthStore()
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<Tab>('collection')
   const [items, setItems] = useState<PayableItem[]>([])
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([])
@@ -116,6 +118,22 @@ function ReceptionPageInner() {
   const [quotePayNote, setQuotePayNote] = useState('')
 
   useEffect(() => { loadData() }, [])
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab') as Tab | null
+    if (requestedTab && ['collection', 'delivery', 'courier', 'installation', 'quote_payments', 'outstanding', 'walkin', 'walkin_list', 'history'].includes(requestedTab)) {
+      setTab(requestedTab)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    const jobId = searchParams.get('job')
+    if (!jobId || isLoading) return
+    const timer = window.setTimeout(() => {
+      document.getElementById(`reception-job-${jobId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => window.clearTimeout(timer)
+  }, [searchParams, isLoading, tab])
 
   async function loadData() {
     setIsLoading(true)
@@ -783,7 +801,7 @@ function ReceptionPageInner() {
             ) : deliveryItems.length === 0 ? (
               <div className="card py-12 text-center text-text-muted">No orders waiting for delivery</div>
             ) : deliveryItems.map(item => (
-              <div key={item.id} className="card p-4 border-l-4 border-emerald-500">
+              <div id={`reception-job-${item.id}`} key={item.id} className="card p-4 border-l-4 border-emerald-500">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <span className="font-mono text-xs text-accent">{item.job_number}</span>
@@ -839,7 +857,7 @@ function ReceptionPageInner() {
             ) : courierItems.length === 0 ? (
               <div className="card py-12 text-center text-text-muted">No orders waiting for courier</div>
             ) : courierItems.map(item => (
-              <div key={item.id} className="card p-4 border-l-4 border-purple-500">
+              <div id={`reception-job-${item.id}`} key={item.id} className="card p-4 border-l-4 border-purple-500">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <span className="font-mono text-xs text-accent">{item.job_number}</span>
