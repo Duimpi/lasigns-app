@@ -19,6 +19,7 @@ import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import { ensureClientRecord, normalizeClientPhone } from '@/lib/clients/ensureClientRecord'
+import { openFinanceEmailDraft } from '@/lib/emailFallback'
 import {
   Plus, Lock, Unlock, Download, Mail, Printer,
   Trash2, X, FileText, CheckCircle2, CheckSquare, Square, Layers
@@ -691,6 +692,8 @@ function QuotesPageInner() {
   async function emailQuote(quote: QuoteWithItems) {
     const doc = generateQuotePDF(quoteForPrint(quote))
     const pdfBase64 = doc.output('datauristring').split(',')[1]
+    const fileName = `${quote.quote_number}.pdf`
+    const fallbackSubject = `Quote ${quote.quote_number} - ${quote.client_name || 'Client'}`
     const toastId = toast.loading('Sending email...')
     try {
       const res = await fetch('/api/send-email', {
@@ -698,7 +701,7 @@ function QuotesPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pdfBase64,
-          fileName: `${quote.quote_number}.pdf`,
+          fileName,
           subject: `Quote ${quote.quote_number} — ${quote.client_name || 'Client'}`,
           clientName: quote.client_name || 'Client',
           type: 'quote',
@@ -711,7 +714,14 @@ function QuotesPageInner() {
       toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
-      toast.error(`Email failed: ${err.message}`)
+      openFinanceEmailDraft({
+        doc,
+        fileName,
+        subject: fallbackSubject,
+        clientName: quote.client_name || 'Client',
+        type: 'quote',
+      })
+      toast.success('Automatic email failed, so I downloaded the PDF and opened a finance email draft')
     }
   }
 

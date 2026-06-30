@@ -19,6 +19,7 @@ import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { PriceAutocomplete } from '@/components/ui/PriceAutocomplete'
 import { ensureClientRecord } from '@/lib/clients/ensureClientRecord'
+import { openFinanceEmailDraft } from '@/lib/emailFallback'
 import {
   Plus, Download, Mail, Printer, Trash2, X, ShoppingBag, CheckCircle2
 } from 'lucide-react'
@@ -592,6 +593,8 @@ function RetailPageInner() {
   async function emailWorkerPDF(job: RetailJob) {
     const doc = generateJobCardPDF(retailJobForPrint(job) as any, true)
     const pdfBase64 = doc.output('datauristring').split(',')[1]
+    const fileName = `${job.job_number}-retail.pdf`
+    const fallbackSubject = `Retail Job ${job.job_number} - ${job.store} ${job.branch || ''} - ${job.client_name || job.title}`
     const toastId = toast.loading('Sending email...')
     try {
       const res = await fetch('/api/send-email', {
@@ -599,7 +602,7 @@ function RetailPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pdfBase64,
-          fileName: `${job.job_number}-retail.pdf`,
+          fileName,
           subject: `Retail Job ${job.job_number} — ${job.store} ${job.branch || ''} — ${job.client_name || job.title}`,
           clientName: job.client_name || job.title,
           type: 'retail',
@@ -612,7 +615,14 @@ function RetailPageInner() {
       toast.success('Email sent to finance@lasigns.com.na ✅')
     } catch (err: any) {
       toast.dismiss(toastId)
-      toast.error(`Email failed: ${err.message}`)
+      openFinanceEmailDraft({
+        doc,
+        fileName,
+        subject: fallbackSubject,
+        clientName: job.client_name || job.title,
+        type: 'retail',
+      })
+      toast.success('Automatic email failed, so I downloaded the PDF and opened a finance email draft')
     }
   }
 
