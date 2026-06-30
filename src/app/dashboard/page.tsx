@@ -14,7 +14,7 @@ import {
   TrendingUp, AlertCircle, CheckCircle2, Clock
 } from 'lucide-react'
 import Link from 'next/link'
-import type { JobCard, Quote } from '@/types'
+import type { Quote } from '@/types'
 
 interface Stats {
   totalClients: number
@@ -25,24 +25,68 @@ interface Stats {
   retailJobs: number
 }
 
-interface WorkerJob extends JobCard {
+interface WorkerJob {
+  id: string
+  job_number: string
+  title: string
+  client_name?: string
+  status: string
+  priority: string
+  assigned_worker?: string | null
+  due_date?: string | null
   is_retail: boolean
+  source_type: 'job_card' | 'retail' | 'quote'
 }
 
 const WORKERS = ['Nicole', 'Geraldo', 'Bets-Mari']
+const QUOTE_WORKER_RE = /\[LA_WORKER:([^\]]+)\]/i
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
 const STATUS_ORDER: Record<string, number> = { 
-  pending: 0, designing: 1, printing: 2, installation: 3, 
+  pending: 0, draft: 0,
+  designing: 1, sent: 1,
+  printing: 2, approved: 2,
+  installation: 3, in_production: 3,
   completed: 4, delivered: 5 
 }
 
+function getQuoteWorker(notes?: string | null) {
+  const worker = String(notes || '').match(QUOTE_WORKER_RE)?.[1]?.trim()
+  return worker && WORKERS.includes(worker) ? worker : ''
+}
+
+function toWorkerJobs(jobs: any[] = [], quotes: any[] = []): WorkerJob[] {
+  const jobRows = jobs.map(job => ({
+    ...job,
+    source_type: job.is_retail ? 'retail' : 'job_card',
+  })) as WorkerJob[]
+
+  const quoteRows = quotes.map(quote => ({
+    id: quote.id,
+    job_number: quote.quote_number,
+    title: `Quote ${quote.quote_number}`,
+    client_name: quote.client_name || 'Unknown client',
+    status: quote.status,
+    priority: 'normal',
+    assigned_worker: quote.assigned_worker || getQuoteWorker(quote.notes) || null,
+    due_date: quote.valid_until || null,
+    is_retail: false,
+    source_type: 'quote',
+    created_at: quote.created_at,
+  })) as WorkerJob[]
+
+  return [...jobRows, ...quoteRows]
+}
 
 function JobRow({ job, router }: { job: any, router: any }) {
   const isOverdue = job.due_date && new Date(job.due_date) < new Date() && !['completed','delivered'].includes(job.status)
   const isUrgent = job.priority === 'urgent'
+  const route = job.source_type === 'quote'
+    ? `/quotes?open=${job.id}`
+    : `/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`
+  const typeLabel = job.source_type === 'quote' ? 'Quote' : job.is_retail ? 'Retail' : ''
   return (
     <div
-      onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
+      onClick={() => router.push(route)}
       className={`px-4 py-3 hover:bg-bg-hover cursor-pointer transition-colors ${isUrgent ? 'border-l-2 border-red-400' : isOverdue ? 'border-l-2 border-amber-400' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -60,6 +104,7 @@ function JobRow({ job, router }: { job: any, router: any }) {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <StatusBadge status={job.status} />
+          {typeLabel && <span className="text-[10px] font-semibold text-accent uppercase">{typeLabel}</span>}
           {isUrgent && <span className="text-[10px] font-bold text-red-400 uppercase">Urgent</span>}
         </div>
       </div>
@@ -92,6 +137,7 @@ export default function DashboardPage() {
         { count: completedCount },
         { count: retailCount },
         { data: activeJobs },
+        { data: activeQuotes },
         { data: quotes },
       ] = await Promise.all([
         supabase.from('clients').select('*', { count: 'exact', head: true }),
@@ -114,6 +160,11 @@ export default function DashboardPage() {
           .not('status', 'in', '(completed,delivered)')
           .order('created_at', { ascending: false }),
         supabase.from('quotes')
+          .select('id, quote_number, client_name, status, notes, valid_until, created_at, is_retail')
+          .eq('is_retail', false)
+          .in('status', ['draft', 'sent', 'approved', 'in_production'])
+          .order('created_at', { ascending: false }),
+        supabase.from('quotes')
           .select('*')
           .eq('is_retail', false)
           .order('created_at', { ascending: false })
@@ -128,7 +179,7 @@ export default function DashboardPage() {
         completedThisMonth: completedCount || 0,
         retailJobs: retailCount || 0,
       })
-      setAllActiveJobs((activeJobs as WorkerJob[]) || [])
+      setAllActiveJobs(toWorkerJobs((activeJobs as any[]) || [], (activeQuotes as any[]) || []))
       setRecentQuotes((quotes as Quote[]) || [])
     } finally {
       setIsLoading(false)
@@ -154,7 +205,7 @@ export default function DashboardPage() {
       const aOverdue = a.due_date && new Date(a.due_date) < new Date() ? 0 : 1
       const bOverdue = b.due_date && new Date(b.due_date) < new Date() ? 0 : 1
       if (aOverdue !== bOverdue) return aOverdue - bOverdue
-      return STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+      return (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)
     })
   }
 
@@ -297,7 +348,7 @@ export default function DashboardPage() {
                 {unassignedJobs.map(job => (
                   <div
                     key={job.id}
-                    onClick={() => router.push(`/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
+                    onClick={() => router.push(job.source_type === 'quote' ? `/quotes?open=${job.id}` : `/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
                     className="flex items-center justify-between px-4 py-3 hover:bg-bg-hover cursor-pointer"
                   >
                     <div>
