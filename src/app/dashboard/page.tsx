@@ -39,6 +39,7 @@ interface WorkerJob {
 }
 
 const WORKERS = ['Nicole', 'Geraldo', 'Bets-Mari']
+const DASHBOARD_JOB_LIMIT = 6
 const QUOTE_WORKER_RE = /\[LA_WORKER:([^\]]+)\]/i
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
 const STATUS_ORDER: Record<string, number> = { 
@@ -123,6 +124,7 @@ export default function DashboardPage() {
   const [recentQuotes, setRecentQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedWorker, setSelectedWorker] = useState<string>('All')
+  const [expandedJobLists, setExpandedJobLists] = useState<Record<string, boolean>>({})
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -209,8 +211,18 @@ export default function DashboardPage() {
     })
   }
 
+  function visibleJobs(listKey: string, jobs: WorkerJob[]) {
+    return expandedJobLists[listKey] ? jobs : jobs.slice(0, DASHBOARD_JOB_LIMIT)
+  }
+
+  function toggleJobList(listKey: string) {
+    setExpandedJobLists(prev => ({ ...prev, [listKey]: !prev[listKey] }))
+  }
+
   // Unassigned jobs
   const unassignedJobs = sortJobs(allActiveJobs.filter(j => !j.assigned_worker))
+  const shownUnassignedJobs = visibleJobs('unassigned', unassignedJobs)
+  const hiddenUnassignedCount = unassignedJobs.length - shownUnassignedJobs.length
 
   return (
     <AppShell>
@@ -269,6 +281,8 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               {WORKERS.map(worker => {
                 const workerJobs = sortJobs(allActiveJobs.filter(j => j.assigned_worker === worker))
+                const shownJobs = visibleJobs(worker, workerJobs)
+                const hiddenCount = workerJobs.length - shownJobs.length
                 return (
                   <div key={worker} className="card overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
@@ -292,7 +306,17 @@ export default function DashboardPage() {
                       ) : workerJobs.length === 0 ? (
                         <div className="py-6 text-center text-xs text-text-muted">No active jobs</div>
                       ) : (
-                        workerJobs.map(job => <JobRow key={job.id} job={job} router={router} />)
+                        <>
+                          {shownJobs.map(job => <JobRow key={job.id} job={job} router={router} />)}
+                          {workerJobs.length > DASHBOARD_JOB_LIMIT && (
+                            <button
+                              onClick={() => toggleJobList(worker)}
+                              className="w-full px-4 py-2.5 text-xs font-semibold text-accent hover:bg-accent/10 transition-colors"
+                            >
+                              {expandedJobLists[worker] ? 'Show less' : `See all (${hiddenCount} more)`}
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -301,7 +325,11 @@ export default function DashboardPage() {
             </div>
           ) : (
             // Show single worker full width
-            <div className="card overflow-hidden">
+            (() => {
+              const workerJobs = sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker))
+              const shownJobs = visibleJobs(selectedWorker, workerJobs)
+              const hiddenCount = workerJobs.length - shownJobs.length
+              return <div className="card overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-bg-elevated/50">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
@@ -310,26 +338,36 @@ export default function DashboardPage() {
                   <span className="font-semibold text-sm text-text-primary">{selectedWorker}</span>
                 </div>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length === 0
+                  workerJobs.length === 0
                     ? 'bg-bg-elevated text-text-muted'
-                    : sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).some(j => j.priority === 'urgent')
+                    : workerJobs.some(j => j.priority === 'urgent')
                     ? 'bg-red-500/20 text-red-400'
                     : 'bg-accent/20 text-accent'
                 }`}>
-                  {sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length} jobs
+                  {workerJobs.length} jobs
                 </span>
               </div>
               <div className="divide-y divide-border/40">
                 {isLoading ? (
                   <div className="py-6 text-center text-xs text-text-muted">Loading...</div>
-                ) : sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker)).length === 0 ? (
+                ) : workerJobs.length === 0 ? (
                   <div className="py-6 text-center text-xs text-text-muted">No active jobs for {selectedWorker}</div>
                 ) : (
-                  sortJobs(allActiveJobs.filter(j => j.assigned_worker === selectedWorker))
-                    .map(job => <JobRow key={job.id} job={job} router={router} />)
+                  <>
+                    {shownJobs.map(job => <JobRow key={job.id} job={job} router={router} />)}
+                    {workerJobs.length > DASHBOARD_JOB_LIMIT && (
+                      <button
+                        onClick={() => toggleJobList(selectedWorker)}
+                        className="w-full px-4 py-2.5 text-xs font-semibold text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        {expandedJobLists[selectedWorker] ? 'Show less' : `See all (${hiddenCount} more)`}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
+            })()
           )}
 
           {/* Unassigned jobs */}
@@ -345,7 +383,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="divide-y divide-border/40">
-                {unassignedJobs.map(job => (
+                {shownUnassignedJobs.map(job => (
                   <div
                     key={job.id}
                     onClick={() => router.push(job.source_type === 'quote' ? `/quotes?open=${job.id}` : `/${job.is_retail ? 'retail' : 'job-cards'}?open=${job.id}`)}
@@ -361,6 +399,14 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ))}
+                {unassignedJobs.length > DASHBOARD_JOB_LIMIT && (
+                  <button
+                    onClick={() => toggleJobList('unassigned')}
+                    className="w-full px-4 py-2.5 text-xs font-semibold text-accent hover:bg-accent/10 transition-colors"
+                  >
+                    {expandedJobLists.unassigned ? 'Show less' : `See all (${hiddenUnassignedCount} more)`}
+                  </button>
+                )}
               </div>
             </div>
           )}
