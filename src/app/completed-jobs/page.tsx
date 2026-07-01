@@ -8,7 +8,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { CheckCircle2, Eye, Trash2 } from 'lucide-react'
+import { generateJobCardPDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
+import { CheckCircle2, Eye, Printer, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -147,6 +148,55 @@ export default function CompletedJobsPage() {
       toast.error(err?.message || 'Failed to delete completed job')
     }
   }
+
+  async function printCompleted(row: CompletedRow) {
+    try {
+      if (row.type === 'quote') {
+        const { data, error } = await supabase
+          .from('quotes')
+          .select('*, items:quote_items(*)')
+          .eq('id', row.id)
+          .single()
+        if (error) throw error
+        const quote = {
+          ...data,
+          items: ((data as any).items || [])
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+            .map((item: any) => ({
+              ...item,
+              total: Number(item.line_total ?? item.total ?? 0),
+            })),
+        }
+        const doc = generateQuoteJobCardPDF(quote as any)
+        const blob = doc.output('blob')
+        const url = URL.createObjectURL(blob)
+        window.open(url, '_blank')?.print()
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('job_cards')
+        .select('*, items:job_card_items(*), client:clients(id, name, company, emails:client_emails(*), phones:client_phones(*))')
+        .eq('id', row.id)
+        .single()
+      if (error) throw error
+      const job = {
+        ...data,
+        items: ((data as any).items || [])
+          .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map((item: any) => ({
+            ...item,
+            total: Number(item.line_total ?? item.total ?? 0),
+          })),
+      }
+      const doc = generateJobCardPDF(job as any, row.type === 'retail')
+      const blob = doc.output('blob')
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')?.print()
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to print completed job')
+    }
+  }
   const clients = useMemo(() => Array.from(new Set(rows.map(row => row.client_name).filter(Boolean) as string[])).sort(), [rows])
 
   const filtered = useMemo(() => {
@@ -225,7 +275,7 @@ export default function CompletedJobsPage() {
               <table className="data-table min-w-[1000px]">
                 <thead>
                   <tr>
-                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-24">Actions</th>
+                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-32">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -241,6 +291,7 @@ export default function CompletedJobsPage() {
                       <td>
                         <div className="flex items-center gap-1">
                           <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => printCompleted(row)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                           <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
