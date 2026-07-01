@@ -466,6 +466,23 @@ function ReceptionPageInner() {
     loadData()
   }
 
+  async function reopenCourier(item: CollectionItem) {
+    if (!confirm(`Move ${item.job_number} back to active courier?`)) return
+    const currentNotes = String(item.notes || '')
+    const nextNotes = (currentNotes.includes(COURIER_COURIERED_TAG)
+      ? currentNotes.replace(COURIER_COURIERED_TAG, COURIER_PENDING_TAG)
+      : [currentNotes, COURIER_PENDING_TAG].filter(Boolean).join('\n'))
+      .split('\n')
+      .filter(line => !line.startsWith('Couriered on '))
+      .join('\n')
+      .trim()
+    const { error } = await supabase.from(item.source_table || 'job_cards').update({ notes: nextNotes || COURIER_PENDING_TAG }).eq('id', item.id)
+    if (error) { toast.error(`Failed: ${error.message}`); return }
+    toast.success('Moved back to active courier')
+    setShowCouriered(false)
+    loadData()
+  }
+
   async function deleteCollectedItem(item: CollectionItem) {
     if (!confirm(`Remove collected history for ${item.client_name || 'this client'}?`)) return
     const nextNotes = String(item.notes || '')
@@ -893,9 +910,14 @@ function ReceptionPageInner() {
                         </div>
                         <p className="text-xs text-text-muted">{item.title}</p>
                       </div>
-                      <button onClick={() => deleteFulfillmentHistory(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" /> Delete
-                      </button>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <button onClick={() => reopenCourier(item)} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/30 font-semibold text-xs transition-colors">
+                          <CheckCheck className="w-3.5 h-3.5" /> Reopen
+                        </button>
+                        <button onClick={() => deleteFulfillmentHistory(item, COURIER_PENDING_TAG, COURIER_COURIERED_TAG, 'Couriered')} className="flex items-center gap-1 px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 font-semibold text-xs transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
