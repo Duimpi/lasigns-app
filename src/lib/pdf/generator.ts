@@ -165,11 +165,13 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     doc.setLineWidth(0.2)
     doc.rect(infoX, infoY, infoW, rowH)
 
+    const isNumberRow = i === 2
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(6)
+    doc.setFontSize(isNumberRow ? 6.8 : 6)
     doc.text(row.label, infoX + 1, infoY + 3)
-    doc.setFont('helvetica', 'normal')
-    if (row.value) doc.text(row.value, infoX + 22, infoY + 3)
+    doc.setFont('helvetica', isNumberRow ? 'bold' : 'normal')
+    doc.setFontSize(isNumberRow ? 7.5 : 6)
+    if (row.value) doc.text(String(row.value), infoX + 22, infoY + (isNumberRow ? 3.35 : 3))
 
     infoY += rowH
   }
@@ -623,12 +625,14 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
     doc.setDrawColor(150, 150, 150)
     doc.setLineWidth(0.2)
     doc.rect(infoX, infoY, infoW, rowH)
+    const isNumberRow = i === 2
     doc.setTextColor(0, 0, 0)
-    doc.setFontSize(6)
+    doc.setFontSize(isNumberRow ? 6.8 : 6)
     doc.setFont('helvetica', 'bold')
     doc.text(row.label, infoX + 1, infoY + 3)
-    doc.setFont('helvetica', 'normal')
-    if (row.value) doc.text(String(row.value), infoX + 22, infoY + 3)
+    doc.setFont('helvetica', isNumberRow ? 'bold' : 'normal')
+    doc.setFontSize(isNumberRow ? 7.5 : 6)
+    if (row.value) doc.text(String(row.value), infoX + 22, infoY + (isNumberRow ? 3.35 : 3))
     infoY += rowH
   }
 
@@ -942,11 +946,14 @@ export function generateQuotePDF(quote: {
     ['Status:', quote.status.replace('_', ' ').toUpperCase()],
   ]
   for (const [label, val] of details) {
+    const isQuoteNumber = label === 'Quote No:'
     doc.setFont('helvetica', 'bold')
+    doc.setFontSize(isQuoteNumber ? 10 : 8)
     doc.text(label, rightX, ry)
-    doc.setFont('helvetica', 'normal')
+    doc.setFont('helvetica', isQuoteNumber ? 'bold' : 'normal')
+    doc.setFontSize(isQuoteNumber ? 10 : 8)
     doc.text(val, rightX + 22, ry)
-    ry += 5
+    ry += isQuoteNumber ? 6 : 5
   }
 
   y += 6
