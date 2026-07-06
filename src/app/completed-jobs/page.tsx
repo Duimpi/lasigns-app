@@ -9,7 +9,7 @@ import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { generateJobCardPDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
-import { CheckCircle2, Eye, Printer, Trash2 } from 'lucide-react'
+import { CheckCircle2, DollarSign, Eye, Printer, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -85,7 +85,11 @@ function typeLabel(type: CompletedType) {
   if (type === 'retail') return 'Retail'
   return 'Quote'
 }
-
+function missingSchemaColumn(error: any) {
+  const message = String(error?.message || '')
+  const match = message.match(/Could not find the '([^']+)' column/i)
+  return match?.[1] || null
+}
 export default function CompletedJobsPage() {
   const [rows, setRows] = useState<CompletedRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -149,6 +153,41 @@ export default function CompletedJobsPage() {
     }
   }
 
+  async function markCompletedPaid(row: CompletedRow) {
+    if (String(row.payment_status || '').toLowerCase() === 'paid') return
+    if (!confirm(`Mark ${row.number} as paid for ${formatCurrency(row.amount)}?`)) return
+
+    const table = row.type === 'quote' ? 'quotes' : 'job_cards'
+    const paidAt = new Date().toISOString()
+    const paymentNote = `PAID: N$${row.amount.toFixed(2)} (Completed Jobs) on ${new Date(paidAt).toLocaleDateString()}`
+    const existingNotes = String(row.notes || '').trim()
+    const nextNotes = existingNotes ? `${paymentNote}\n${existingNotes}` : paymentNote
+    const updatePayload: Record<string, any> = {
+      amount_paid: row.amount,
+      payment_status: 'paid',
+      payment_method: 'completed_jobs',
+      payment_date: paidAt,
+      notes: nextNotes,
+    }
+
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { error } = await supabase.from(table).update(updatePayload).eq('id', row.id)
+        if (!error) {
+          toast.success(`${row.number} marked as paid`)
+          loadCompleted()
+          return
+        }
+
+        const missingColumn = missingSchemaColumn(error)
+        if (!missingColumn || !(missingColumn in updatePayload)) throw error
+        delete updatePayload[missingColumn]
+      }
+      throw new Error('Payment update failed')
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to mark completed job as paid')
+    }
+  }
   async function printCompleted(row: CompletedRow) {
     try {
       if (row.type === 'quote') {
@@ -291,6 +330,9 @@ export default function CompletedJobsPage() {
                       <td>
                         <div className="flex items-center gap-1">
                           <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
+                          {String(row.payment_status || '').toLowerCase() !== 'paid' && (
+                            <button onClick={() => markCompletedPaid(row)} className="btn-icon text-emerald-400" title="Mark paid"><DollarSign className="w-3.5 h-3.5" /></button>
+                          )}
                           <button onClick={() => printCompleted(row)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                           <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
