@@ -37,6 +37,7 @@ const SHOPRITE_CHICRITE_BRANCHES = [
   'Shoprite Katima Mulilo ChicRite',
   'Shoprite Rundu ChicRite',
   'Shoprite Liquor Ohangwena (Liquor)',
+  'Shoprite Liquor Goreangab (Liquor)',
 ]
 const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
   Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
