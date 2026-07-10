@@ -87,6 +87,7 @@ function visibleNotes(notes?: string | null) {
   return String(notes || '')
     .replace(/\[LA_(COLLECTION|DELIVERY|COURIER|INSTALL)_[^\]]+\]/gi, '')
     .replace(/\[LA_(DELIVERY|COURIER|INSTALL)_[A-Z_]+:[^\]]*\]/gi, '')
+    .replace(/\[LA_ORDER_NUMBER:[^\]]*\]/gi, '')
     .replace(/(Collected|Delivered|Couriered|Installed \/ Applied) on .+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
@@ -577,6 +578,7 @@ type QuoteJobCardPrintInput = {
   notes?: string | null
   valid_until?: string | null
   assigned_worker?: string | null
+  order_number?: string | null
   fulfillment_lines?: string[]
   items?: { description: string; quantity: number; unit_price?: number; total?: number; line_total?: number; size?: string | null }[]
   created_at?: string
@@ -606,11 +608,12 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
 
   const infoX = xOffset + m + 65
   const infoW = iW - 65
+  const orderNumber = quote.order_number || tagValue(quote.notes, 'ORDER_NUMBER')
   const infoRows = [
     { label: 'DATE:', value: formatDate(quote.created_at || new Date().toISOString()) },
     { label: 'Valid Until:', value: formatDate(quote.valid_until) || '' },
     { label: 'Quote No:', value: quote.quote_number || '' },
-    { label: 'Status:', value: (quote.status || 'draft').replace('_', ' ').toUpperCase() },
+    { label: orderNumber ? 'Order No:' : 'Status:', value: orderNumber || (quote.status || 'draft').replace('_', ' ').toUpperCase() },
     { label: 'Worker:', value: quote.assigned_worker || '' },
   ]
 
@@ -879,6 +882,7 @@ export function generateQuotePDF(quote: {
   discount?: number
   notes?: string
   valid_until?: string
+  order_number?: string | null
   items?: { description: string; quantity: number; unit_price: number; total: number; size?: string }[]
   created_at: string
 }): jsPDF {
@@ -939,8 +943,10 @@ export function generateQuotePDF(quote: {
   const rightX = pageW - m - 65
   let ry = y - (quote.client_email ? 10 : 5) - (quote.client_address ? 5 : 0) - 5
   doc.setFontSize(8)
+  const orderNumber = quote.order_number || tagValue(quote.notes, 'ORDER_NUMBER')
   const details = [
     ['Quote No:', quote.quote_number],
+    ...(orderNumber ? [['Order No:', orderNumber]] : []),
     ['Date:', formatDate(quote.created_at)],
     ['Valid Until:', formatDate(quote.valid_until) || '—'],
     ['Status:', quote.status.replace('_', ' ').toUpperCase()],

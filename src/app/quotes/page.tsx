@@ -66,6 +66,7 @@ const quoteSchema = z.object({
   client_email: z.string().email().or(z.literal('').optional()),
   client_phone: z.string().optional().default(''),
   client_address: z.string().optional(),
+  order_number: z.string().optional().default(''),
   status: z.enum(['draft', 'sent', 'approved', 'in_production', 'completed', 'cancelled']),
   vat_rate: z.coerce.number().default(15),
   notes: z.string().optional(),
@@ -209,6 +210,7 @@ function stripQuoteHiddenTags(notes?: string | null) {
   return stripFulfillmentTags(notes)
     .replace(QUOTE_WORKER_RE, '')
     .replace(QUOTE_CLIENT_NUMBER_RE, '')
+    .replace(/\[LA_ORDER_NUMBER:[^\]]*\]/gi, '')
     .replace(RECEPTION_APPROVED_TAG, '')
     .replace(RECEPTION_QUOTE_TAG_RE, '')
     .replace(/\n{3,}/g, '\n\n')
@@ -234,6 +236,7 @@ function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clien
     cleanNotes,
     worker ? '[LA_WORKER:' + worker + ']' : '',
     cleanNumber ? '[LA_CLIENT_NUMBER:' + cleanNumber + ']' : '',
+    data ? makeTag('ORDER_NUMBER', data.order_number) : '',
     ...(data ? fulfillmentTagsForQuote(data) : []),
     ...getReceptionQuoteTags(originalNotes),
   ].filter(Boolean).join('\n')
@@ -297,6 +300,7 @@ function quoteForPrint(quote: QuoteWithItems) {
     notes: stripQuoteHiddenTags(quote.notes),
     assigned_worker: ((quote as any).assigned_worker || getQuoteWorker(quote.notes)) as Worker | '',
     client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(quote.notes)),
+    order_number: tagValue(sourceNotes, 'ORDER_NUMBER'),
     fulfillment_lines: fulfillmentLines,
   }
 }
@@ -325,7 +329,7 @@ function QuotesPageInner() {
     resolver: zodResolver(quoteSchema),
     defaultValues: {
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', order_number: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
       courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery', courier_notes: '',
       install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
@@ -414,7 +418,7 @@ function QuotesPageInner() {
     setEditingQuote(null)
     reset({
       client_name: '', client_email: '', client_address: '',
-      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', discount: 0,
+      status: 'draft', vat_rate: 15, notes: '', valid_until: '', assigned_worker: '', client_phone: '', order_number: '', discount: 0,
       fulfillment_method: 'none', delivery_name: '', delivery_number: '', delivery_address: '',
       courier_company: '', courier_address: '', courier_contact_person: '', courier_payment: 'pay_on_delivery', courier_notes: '',
       install_address: '', install_contact_person: '', install_contact_number: '', install_preferred_date: '', install_notes: '',
@@ -439,6 +443,7 @@ function QuotesPageInner() {
       valid_until: quote.valid_until || '',
       assigned_worker: quote.assigned_worker || getQuoteWorker(sourceNotes),
       client_phone: cleanClientNumber(quote.client_phone || getQuoteClientNumber(sourceNotes)),
+      order_number: tagValue(sourceNotes, 'ORDER_NUMBER'),
       discount: (quote as any).discount || 0,
       fulfillment_method: fulfillment.method as QuoteFormData['fulfillment_method'],
       delivery_name: fulfillment.delivery_name,
@@ -916,7 +921,7 @@ function QuotesPageInner() {
           </div>
 
           {/* Quote details */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="label">Status</label>
               <select {...register('status')} className="input">
@@ -930,6 +935,10 @@ function QuotesPageInner() {
             <div>
               <label className="label">Valid Until</label>
               <input {...register('valid_until')} type="date" className="input" />
+            </div>
+            <div>
+              <label className="label">Order Number</label>
+              <input {...register('order_number')} className="input" placeholder="Customer order no." />
             </div>
             <div>
               <label className="label">Assigned Worker</label>
