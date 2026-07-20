@@ -9,7 +9,7 @@ import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { generateJobCardPDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
-import { CheckCircle2, DollarSign, Eye, Printer, Trash2 } from 'lucide-react'
+import { CheckCircle2, DollarSign, Download, Eye, Printer, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -188,6 +188,50 @@ export default function CompletedJobsPage() {
       toast.error(err?.message || 'Failed to mark completed job as paid')
     }
   }
+  async function downloadCompleted(row: CompletedRow) {
+    try {
+      if (row.type === 'quote') {
+        const { data, error } = await supabase
+          .from('quotes')
+          .select('*, items:quote_items(*)')
+          .eq('id', row.id)
+          .single()
+        if (error) throw error
+        const quote = {
+          ...data,
+          items: ((data as any).items || [])
+            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+            .map((item: any) => ({
+              ...item,
+              total: Number(item.line_total ?? item.total ?? 0),
+            })),
+        }
+        generateQuoteJobCardPDF(quote as any).save(`${row.number || 'completed-quote'}.pdf`)
+        toast.success('PDF downloaded')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('job_cards')
+        .select('*, items:job_card_items(*), client:clients(id, name, company, emails:client_emails(*), phones:client_phones(*))')
+        .eq('id', row.id)
+        .single()
+      if (error) throw error
+      const job = {
+        ...data,
+        items: ((data as any).items || [])
+          .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map((item: any) => ({
+            ...item,
+            total: Number(item.line_total ?? item.total ?? 0),
+          })),
+      }
+      generateJobCardPDF(job as any, row.type === 'retail').save(`${row.number || 'completed-job'}.pdf`)
+      toast.success('PDF downloaded')
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to download completed job')
+    }
+  }
   async function printCompleted(row: CompletedRow) {
     try {
       if (row.type === 'quote') {
@@ -314,7 +358,7 @@ export default function CompletedJobsPage() {
               <table className="data-table min-w-[1000px]">
                 <thead>
                   <tr>
-                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-32">Actions</th>
+                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-40">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -333,6 +377,7 @@ export default function CompletedJobsPage() {
                           {String(row.payment_status || '').toLowerCase() !== 'paid' && (
                             <button onClick={() => markCompletedPaid(row)} className="btn-icon text-emerald-400" title="Mark paid"><DollarSign className="w-3.5 h-3.5" /></button>
                           )}
+                          <button onClick={() => downloadCompleted(row)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
                           <button onClick={() => printCompleted(row)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
                           <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
