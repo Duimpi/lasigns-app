@@ -23,6 +23,7 @@ const navItems = [
   { href: '/quotes', icon: FileText, label: 'Quotes' },
   { href: '/job-cards', icon: Briefcase, label: 'Job Cards' },
   { href: '/retail', icon: ShoppingBag, label: 'Retail' },
+  { href: '/production-sheet', icon: BarChart3, label: 'Production Sheet' },
   { href: '/completed-jobs', icon: CheckCircle2, label: 'Completed Jobs' },
   { href: '/messaging', icon: MessageSquare, label: 'Messages' },
   { href: '/reception', icon: CreditCard, label: 'Reception' },
