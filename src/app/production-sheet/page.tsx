@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase/client'
 import { Check, ExternalLink, Plus, Search, Trash2 } from 'lucide-react'
@@ -560,40 +559,7 @@ export default function ProductionSheetPage() {
 
   return (
     <AppShell>
-      <div className="px-6 pb-6 pt-24 space-y-4">
-        <div className="card p-3 flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[280px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-            <input
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              className="input pl-9"
-              placeholder="Search worker, client, status, comments..."
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-text-secondary">
-            <input
-              type="checkbox"
-              checked={hideEmpty}
-              onChange={event => setHideEmpty(event.target.checked)}
-              className="accent-accent"
-            />
-            Hide empty rows
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              window.localStorage.removeItem(STORAGE_KEY)
-              pushRowsHistory(rows)
-              setRows(starterRows())
-              toast.success('Test sheet reset')
-            }}
-            className="btn-secondary btn-sm"
-          >
-            Reset Test Data
-          </button>
-        </div>
-
+      <div className="px-6 pb-6 pt-44 space-y-4">
         <div className="fixed left-56 right-0 top-0 z-[60] border-b border-border bg-bg/95 px-6 py-2 backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
@@ -620,6 +586,38 @@ export default function ProductionSheetPage() {
               </button>
             ))}
             <span className="ml-auto text-text-muted">{selectedRowId ? 'Selected row ready' : 'Click a row first'}</span>
+          </div>
+          <div className="mt-2 card p-3 flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[280px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <input
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                className="input pl-9"
+                placeholder="Search worker, client, status, comments..."
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={hideEmpty}
+                onChange={event => setHideEmpty(event.target.checked)}
+                className="accent-accent"
+              />
+              Hide empty rows
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                window.localStorage.removeItem(STORAGE_KEY)
+                pushRowsHistory(rows)
+                setRows(starterRows())
+                toast.success('Test sheet reset')
+              }}
+              className="btn-secondary btn-sm"
+            >
+              Reset Test Data
+            </button>
           </div>
         </div>
         <div className="space-y-5">
