@@ -625,7 +625,7 @@ export default function ProductionSheetPage() {
             const workerRows = filteredRows.filter(row => row.worker === worker)
             return (
               <section key={worker} className="card overflow-visible">
-                <div className="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3">
+                <div className="sticky top-[170px] z-40 flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3 shadow-elevated">
                   <div>
                     <h2 className="font-display text-xl tracking-wide text-text-primary">{worker}</h2>
                     <p className="text-xs text-text-muted">{workerRows.filter(rowHasText).length} active sheet rows</p>
@@ -636,10 +636,10 @@ export default function ProductionSheetPage() {
                   </button>
                 </div>
 
-                <div className="overflow-x-auto overflow-y-hidden overscroll-x-contain">
+                <div className="overflow-x-auto overscroll-x-contain">
                   <div className="min-w-[1360px] xl:min-w-0">
                     <div
-                      className="grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
+                      className="sticky top-[230px] z-30 grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white shadow-elevated"
                       style={{ gridTemplateColumns: gridTemplate }}
                     >
                       <div className="border-l border-r border-b border-black px-1 py-1.5 text-center">Actions</div>
