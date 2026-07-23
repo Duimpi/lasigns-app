@@ -9,7 +9,7 @@ import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { generateJobCardPDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
-import { CheckCircle2, DollarSign, Download, Eye, Printer, Trash2 } from 'lucide-react'
+import { CheckCircle2, DollarSign, Download, Eye, Printer, RotateCcw, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -150,6 +150,35 @@ export default function CompletedJobsPage() {
       loadCompleted()
     } catch (err: any) {
       toast.error(err?.message || 'Failed to delete completed job')
+    }
+  }
+
+  async function moveQuoteBack(row: CompletedRow) {
+    if (row.type !== 'quote') return
+    if (!confirm(`Move ${row.number} back to active Quotes?`)) return
+
+    const updatePayload: Record<string, any> = {
+      status: 'Draft',
+      completed_at: null,
+      completed_by: null,
+    }
+
+    try {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const { error } = await supabase.from('quotes').update(updatePayload).eq('id', row.id)
+        if (!error) {
+          toast.success(`${row.number} moved back to Quotes`)
+          loadCompleted()
+          return
+        }
+
+        const missingColumn = missingSchemaColumn(error)
+        if (!missingColumn || !(missingColumn in updatePayload)) throw error
+        delete updatePayload[missingColumn]
+      }
+      throw new Error('Move back failed')
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to move quote back')
     }
   }
 
@@ -374,6 +403,9 @@ export default function CompletedJobsPage() {
                       <td>
                         <div className="flex items-center gap-1">
                           <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
+                          {row.type === 'quote' && (
+                            <button onClick={() => moveQuoteBack(row)} className="btn-icon text-accent" title="Move back to Quotes"><RotateCcw className="w-3.5 h-3.5" /></button>
+                          )}
                           {String(row.payment_status || '').toLowerCase() !== 'paid' && (
                             <button onClick={() => markCompletedPaid(row)} className="btn-icon text-emerald-400" title="Mark paid"><DollarSign className="w-3.5 h-3.5" /></button>
                           )}
