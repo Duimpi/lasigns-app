@@ -43,13 +43,14 @@ type SheetRow = {
   feedback: string
   next_step: string
   due_date: string
+  link_id: string
   link_type: LinkType
   link_number: string
   row_height: number | null
 }
 
 type Column = {
-  key: keyof Omit<SheetRow, 'id' | 'worker' | 'highlight' | 'done' | 'link_type' | 'row_height'>
+  key: keyof Omit<SheetRow, 'id' | 'worker' | 'highlight' | 'done' | 'link_id' | 'link_type' | 'row_height'>
   label: string
   width: string
   placeholder?: string
@@ -96,6 +97,7 @@ function makeRow(worker: WorkerSection, seed: Partial<SheetRow> = {}): SheetRow 
     feedback: '',
     next_step: '',
     due_date: '',
+    link_id: '',
     link_type: '',
     link_number: '',
     row_height: null,
@@ -182,10 +184,12 @@ function estimateRowHeight(row: SheetRow) {
   return Math.max(54, Math.min(420, maxLines * 18 + 22))
 }
 function getLinkHref(row: SheetRow) {
+  const open = row.link_id ? `?open=${encodeURIComponent(row.link_id)}` : ''
   const find = row.link_number.trim() ? `?find=${encodeURIComponent(row.link_number.trim())}` : ''
-  if (row.link_type === 'quote') return `/quotes${find}`
-  if (row.link_type === 'retail') return `/retail${find}`
-  if (row.link_type === 'job_card') return `/job-cards${find}`
+  const query = open || find
+  if (row.link_type === 'quote') return `/quotes${query}`
+  if (row.link_type === 'retail') return `/retail${query}`
+  if (row.link_type === 'job_card') return `/job-cards${query}`
   return ''
 }
 
@@ -224,6 +228,18 @@ export default function ProductionSheetPage() {
     loadLinkedJobs()
     loadClients()
   }, [])
+
+  useEffect(() => {
+    if (!linkedJobs.length) return
+    setRows(current => current.map(row => {
+      if (!row.link_type || row.link_id || !row.link_number.trim()) return row
+      const linkNumber = row.link_number.trim().toLowerCase()
+      const match = linkedJobs.find(job =>
+        job.type === row.link_type && job.number.toLowerCase() === linkNumber
+      )
+      return match ? { ...row, link_id: match.id } : row
+    }))
+  }, [linkedJobs])
 
   useEffect(() => {
     function handleUndo(event: KeyboardEvent) {
@@ -453,6 +469,7 @@ export default function ProductionSheetPage() {
       if (row.id !== rowId) return row
       return {
         ...row,
+        link_id: job.id,
         link_type: job.type,
         link_number: job.number,
         company: row.company || job.client,
@@ -470,6 +487,7 @@ export default function ProductionSheetPage() {
         if (row.id !== rowId) return row
         const updated = { ...row, [key]: value }
         if (key === 'link_number' && !value.trim()) {
+          updated.link_id = ''
           updated.link_type = ''
         }
         return updated
@@ -586,24 +604,27 @@ export default function ProductionSheetPage() {
           </button>
         </div>
 
-        <div className="card sticky top-0 z-50 flex flex-wrap items-center gap-2 border-accent/40 bg-bg-surface/95 px-3 py-2 text-xs text-text-secondary shadow-elevated backdrop-blur">
-          <span className="mr-1 font-semibold text-text-primary">Row colour</span>
-          {HIGHLIGHTS.map(highlight => (
-            <button
-              key={highlight.value}
-              type="button"
-              onClick={() => applyToolbarHighlight(highlight.value)}
-              className={cn(
-                'flex items-center gap-1.5 rounded border border-border bg-bg-surface px-2 py-1 hover:border-accent hover:text-white',
-                selectedRowId && rows.find(row => row.id === selectedRowId)?.highlight === highlight.value && 'border-accent text-white'
-              )}
-              title={highlight.label}
-            >
-              <span className={cn('h-3 w-3 rounded-full border border-white/20', highlight.swatch)} />
-              <span>{highlight.label}</span>
-            </button>
-          ))}
-          <span className="ml-auto text-text-muted">{selectedRowId ? 'Selected row ready' : 'Click a row first'}</span>
+        <div className="h-12" aria-hidden="true" />
+        <div className="fixed left-56 right-0 top-0 z-[60] border-b border-border bg-bg/95 px-6 py-2 backdrop-blur">
+          <div className="card flex flex-wrap items-center gap-2 border-accent/40 bg-bg-surface/95 px-3 py-2 text-xs text-text-secondary shadow-elevated">
+            <span className="mr-1 font-semibold text-text-primary">Row colour</span>
+            {HIGHLIGHTS.map(highlight => (
+              <button
+                key={highlight.value}
+                type="button"
+                onClick={() => applyToolbarHighlight(highlight.value)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded border border-border bg-bg-surface px-2 py-1 hover:border-accent hover:text-white',
+                  selectedRowId && rows.find(row => row.id === selectedRowId)?.highlight === highlight.value && 'border-accent text-white'
+                )}
+                title={highlight.label}
+              >
+                <span className={cn('h-3 w-3 rounded-full border border-white/20', highlight.swatch)} />
+                <span>{highlight.label}</span>
+              </button>
+            ))}
+            <span className="ml-auto text-text-muted">{selectedRowId ? 'Selected row ready' : 'Click a row first'}</span>
+          </div>
         </div>
         <div className="space-y-5">
           {WORKERS.map(worker => {
