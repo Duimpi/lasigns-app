@@ -158,7 +158,7 @@ export default function CompletedJobsPage() {
     if (!confirm(`Move ${row.number} back to active Quotes?`)) return
 
     const updatePayload: Record<string, any> = {
-      status: 'Draft',
+      status: 'draft',
       completed_at: null,
       completed_by: null,
     }
@@ -425,3 +425,4 @@ export default function CompletedJobsPage() {
     </AppShell>
   )
 }
+
