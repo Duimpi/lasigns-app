@@ -560,17 +560,7 @@ export default function ProductionSheetPage() {
 
   return (
     <AppShell>
-      <PageHeader
-        title="PRODUCTION SHEET"
-        subtitle="Test spreadsheet-style workflow. This copy saves only in this browser."
-        actions={
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <span className="rounded border border-border bg-bg-surface px-2 py-1">{saveState}</span>
-          </div>
-        }
-      />
-
-      <div className="px-6 pb-6 space-y-4">
+      <div className="px-6 pb-6 pt-24 space-y-4">
         <div className="card p-3 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[280px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
@@ -604,8 +594,14 @@ export default function ProductionSheetPage() {
           </button>
         </div>
 
-        <div className="h-12" aria-hidden="true" />
         <div className="fixed left-56 right-0 top-0 z-[60] border-b border-border bg-bg/95 px-6 py-2 backdrop-blur">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <h1 className="font-display text-2xl tracking-wider text-text-primary">PRODUCTION SHEET</h1>
+              <p className="text-xs text-text-muted">Spreadsheet-style workflow</p>
+            </div>
+            <span className="rounded border border-border bg-bg-surface px-2 py-1 text-xs text-text-muted">{saveState}</span>
+          </div>
           <div className="card flex flex-wrap items-center gap-2 border-accent/40 bg-bg-surface/95 px-3 py-2 text-xs text-text-secondary shadow-elevated">
             <span className="mr-1 font-semibold text-text-primary">Row colour</span>
             {HIGHLIGHTS.map(highlight => (
