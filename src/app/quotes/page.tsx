@@ -242,6 +242,15 @@ function notesWithQuoteMeta(notes?: string | null, worker?: string | null, clien
   ].filter(Boolean).join('\n')
 }
 
+function normalizeQuoteSearch(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function isQuoteNumberSearch(value: string) {
+  const normalized = normalizeQuoteSearch(value.trim())
+  return /^laq\d+$/.test(normalized) || /^q\d+$/.test(normalized) || /^\d{2,}$/.test(normalized)
+}
+
 function notesWithQuoteWorker(notes?: string | null, worker?: string | null) {
   return notesWithQuoteMeta(notes, worker, getQuoteClientNumber(notes))
 }
@@ -378,14 +387,19 @@ function QuotesPageInner() {
 
   const applyFilter = useCallback(
     debounce((list: QuoteWithItems[], q: string, status: string) => {
+      const query = q.trim()
+      const quoteNumberSearch = isQuoteNumberSearch(query)
       let result = list.filter(quote => !quote.is_retail && quote.status !== 'completed')
-      if (status !== 'all') result = result.filter(quote => quote.status === status)
-      if (q.trim()) {
-        const ql = q.toLowerCase()
-        result = result.filter(quote =>
-          quote.quote_number.toLowerCase().includes(ql) ||
-          (quote.client_name || '').toLowerCase().includes(ql)
-        )
+      if (status !== 'all' && !quoteNumberSearch) result = result.filter(quote => quote.status === status)
+      if (query) {
+        const ql = query.toLowerCase()
+        const normalizedQuery = normalizeQuoteSearch(query)
+        result = result.filter(quote => {
+          const quoteNumber = quote.quote_number || ''
+          return quoteNumber.toLowerCase().includes(ql) ||
+            normalizeQuoteSearch(quoteNumber).includes(normalizedQuery) ||
+            (quote.client_name || '').toLowerCase().includes(ql)
+        })
       }
       setFiltered(result)
     }, 120),

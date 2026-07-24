@@ -806,11 +806,13 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   const tRowH = bottomH / totalRows.length
   for (let i = 0; i < totalRows.length; i++) {
     const ty = bottomY + i * tRowH
+    const isGrandTotal = i === totalRows.length - 1
     if (i > 0) doc.line(totalsX, ty, totalsX + totalsW, ty)
-    doc.setFontSize(6.5)
+    doc.setFontSize(isGrandTotal ? 7.8 : 6.5)
     doc.setFont('helvetica', 'bold')
     doc.text(totalRows[i].label, totalsX + 1, ty + tRowH / 2 + 1.5)
-    doc.setFont('helvetica', i === totalRows.length - 1 ? 'bold' : 'normal')
+    doc.setFont('helvetica', isGrandTotal ? 'bold' : 'normal')
+    doc.setFontSize(isGrandTotal ? 8.2 : 6.5)
     doc.text(totalRows[i].value, totalsX + totalsW - 1, ty + tRowH / 2 + 1, { align: 'right' })
   }
 
