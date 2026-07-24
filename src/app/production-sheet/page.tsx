@@ -664,7 +664,7 @@ export default function ProductionSheetPage() {
                 <div className="overflow-x-auto overscroll-x-contain">
                   <div className="min-w-[1360px] xl:min-w-0">
                     <div
-                      className="sticky top-[230px] z-30 grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
+                      className="grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
                       style={{ gridTemplateColumns: gridTemplate }}
                     >
                       <div className="border-l border-r border-b border-black px-1 py-1.5 text-center">Actions</div>
