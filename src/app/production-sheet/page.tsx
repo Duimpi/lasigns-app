@@ -55,7 +55,7 @@ type Column = {
   placeholder?: string
 }
 
-const STORAGE_KEY = 'la-signs-production-sheet-test-v4'
+const STORAGE_KEY = 'la-signs-production-sheet-test-v5'
 const WORKERS: WorkerSection[] = ['Nicole', 'Geraldo', 'Bets-Mari', 'Damion', 'Outsourcing']
 const FIXED_HEADER_OFFSET = 208
 const HIGHLIGHTS: { value: Highlight; label: string; swatch: string }[] = [
