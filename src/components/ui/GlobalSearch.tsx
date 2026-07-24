@@ -61,7 +61,7 @@ export function GlobalSearch() {
         ...((quotes || []).map(q => ({
           id: q.id, type: 'quote' as const,
           title: q.client_name || 'Unknown', subtitle: q.quote_number,
-          href: `/quotes?open=${q.id}`, value: q.total,
+          href: `/quotes?find=${encodeURIComponent(q.quote_number || q.client_name || '')}`, value: q.total,
         }))),
         ...((jobs || []).map(j => ({
           id: j.id, type: (j.job_number?.startsWith('WI-') ? 'retail' : 'job') as any,

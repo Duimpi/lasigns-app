@@ -369,8 +369,12 @@ function QuotesPageInner() {
 
   useEffect(() => {
     const openId = searchParams.get('open')
+    const findQuote = searchParams.get('find')
     const isNew = searchParams.get('new')
-    if (isNew) openCreate()
+    if (findQuote) {
+      setSearch(findQuote)
+      setStatusFilter('all')
+    } else if (isNew) openCreate()
     else if (openId && quotes.length > 0) {
       const q = quotes.find(q => q.id === openId)
       if (q) openEdit(q)
