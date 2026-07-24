@@ -57,6 +57,7 @@ type Column = {
 
 const STORAGE_KEY = 'la-signs-production-sheet-test-v4'
 const WORKERS: WorkerSection[] = ['Nicole', 'Geraldo', 'Bets-Mari', 'Damion', 'Outsourcing']
+const FIXED_HEADER_OFFSET = 208
 const HIGHLIGHTS: { value: Highlight; label: string; swatch: string }[] = [
   { value: 'none', label: 'No highlight', swatch: 'bg-bg-surface' },
   { value: 'red', label: 'Urgent', swatch: 'bg-red-500' },
@@ -227,9 +228,17 @@ export default function ProductionSheetPage() {
   const [activeLinkRow, setActiveLinkRow] = useState<string | null>(null)
   const [activeClientRow, setActiveClientRow] = useState<string | null>(null)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
+  const [activeWorker, setActiveWorker] = useState<WorkerSection>('Nicole')
   const [linkDropdownPosition, setLinkDropdownPosition] = useState<{ left: number; top: number; width: number } | null>(null)
   const [clientDropdownPosition, setClientDropdownPosition] = useState<{ left: number; top: number; width: number } | null>(null)
   const resizingRow = useRef<{ rowId: string; startY: number; startHeight: number } | null>(null)
+  const workerSectionRefs = useRef<Record<WorkerSection, HTMLElement | null>>({
+    Nicole: null,
+    Geraldo: null,
+    'Bets-Mari': null,
+    Damion: null,
+    Outsourcing: null,
+  })
   const saveTimer = useRef<number | null>(null)
   const historyRef = useRef<SheetRow[][]>([])
   const gridTemplate = `112px ${COLUMNS.map(column => column.width).join(' ')}`
@@ -275,6 +284,36 @@ export default function ProductionSheetPage() {
     window.addEventListener('keydown', handleUndo)
     return () => window.removeEventListener('keydown', handleUndo)
   }, [])
+
+  useEffect(() => {
+    function updateActiveWorker() {
+      const cutoff = FIXED_HEADER_OFFSET + 64
+      let currentWorker: WorkerSection = WORKERS[0]
+
+      for (const worker of WORKERS) {
+        const section = workerSectionRefs.current[worker]
+        if (!section) continue
+
+        const rect = section.getBoundingClientRect()
+        if (rect.top <= cutoff && rect.bottom > cutoff) {
+          currentWorker = worker
+          break
+        }
+        if (rect.top <= cutoff) currentWorker = worker
+      }
+
+      setActiveWorker(previous => previous === currentWorker ? previous : currentWorker)
+    }
+
+    updateActiveWorker()
+    window.addEventListener('scroll', updateActiveWorker, { passive: true })
+    window.addEventListener('resize', updateActiveWorker)
+    return () => {
+      window.removeEventListener('scroll', updateActiveWorker)
+      window.removeEventListener('resize', updateActiveWorker)
+    }
+  }, [filteredRows])
+
 
   useEffect(() => {
     function handleMouseMove(event: MouseEvent) {
@@ -578,13 +617,14 @@ export default function ProductionSheetPage() {
   }
 
   const activeLinkedRow = rows.find(row => row.id === activeLinkRow) || null
+  const activeWorkerRows = filteredRows.filter(row => row.worker === activeWorker)
   const activeLinkedMatches = activeLinkedRow ? getLinkedJobMatches(activeLinkedRow) : []
   const activeClientMatchRow = rows.find(row => row.id === activeClientRow) || null
   const activeClientMatches = activeClientMatchRow ? getClientMatches(activeClientMatchRow) : []
 
   return (
     <AppShell>
-      <div className="px-6 pb-6 pt-52 space-y-4">
+      <div className="px-6 pb-6 pt-72 space-y-4">
         <div className="fixed left-56 right-0 top-0 z-[60] border-b border-border bg-bg/95 px-6 py-2 backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
@@ -656,12 +696,25 @@ export default function ProductionSheetPage() {
             </div>
           </div>
         </div>
+        <div
+          className="fixed left-56 right-0 z-[55] flex items-center justify-between border-b border-border bg-bg-elevated px-6 py-3 shadow-elevated"
+          style={{ top: `${FIXED_HEADER_OFFSET}px` }}
+        >
+          <div>
+            <h2 className="font-display text-xl tracking-wide text-text-primary">{activeWorker}</h2>
+            <p className="text-xs text-text-muted">{activeWorkerRows.filter(rowHasText).length} active sheet rows</p>
+          </div>
+          <button type="button" onClick={() => addRow(activeWorker)} className="btn-secondary btn-sm">
+            <Plus className="w-3.5 h-3.5" />
+            Add Row
+          </button>
+        </div>
         <div className="space-y-5">
           {WORKERS.map(worker => {
             const workerRows = sortRowsByDate(filteredRows.filter(row => row.worker === worker))
             return (
-              <section key={worker} className="card overflow-visible" style={{ overflow: 'visible' }}>
-                <div className="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3 shadow-elevated" style={{ position: 'sticky', top: '208px', zIndex: 50 }}>
+              <section key={worker} ref={element => { workerSectionRefs.current[worker] = element }} className="card overflow-visible" style={{ overflow: 'visible' }}>
+                <div className="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3">
                   <div>
                     <h2 className="font-display text-xl tracking-wide text-text-primary">{worker}</h2>
                     <p className="text-xs text-text-muted">{workerRows.filter(rowHasText).length} active sheet rows</p>
