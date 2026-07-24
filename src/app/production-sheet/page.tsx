@@ -285,35 +285,6 @@ export default function ProductionSheetPage() {
     return () => window.removeEventListener('keydown', handleUndo)
   }, [])
 
-  useEffect(() => {
-    function updateActiveWorker() {
-      const cutoff = FIXED_HEADER_OFFSET + 64
-      let currentWorker: WorkerSection = WORKERS[0]
-
-      for (const worker of WORKERS) {
-        const section = workerSectionRefs.current[worker]
-        if (!section) continue
-
-        const rect = section.getBoundingClientRect()
-        if (rect.top <= cutoff && rect.bottom > cutoff) {
-          currentWorker = worker
-          break
-        }
-        if (rect.top <= cutoff) currentWorker = worker
-      }
-
-      setActiveWorker(previous => previous === currentWorker ? previous : currentWorker)
-    }
-
-    updateActiveWorker()
-    window.addEventListener('scroll', updateActiveWorker, { passive: true })
-    window.addEventListener('resize', updateActiveWorker)
-    return () => {
-      window.removeEventListener('scroll', updateActiveWorker)
-      window.removeEventListener('resize', updateActiveWorker)
-    }
-  }, [filteredRows])
-
 
   useEffect(() => {
     function handleMouseMove(event: MouseEvent) {
@@ -360,6 +331,35 @@ export default function ProductionSheetPage() {
         .includes(query)
     })
   }, [rows, search, hideEmpty])
+  useEffect(() => {
+    function updateActiveWorker() {
+      const cutoff = FIXED_HEADER_OFFSET + 64
+      let currentWorker: WorkerSection = WORKERS[0]
+
+      for (const worker of WORKERS) {
+        const section = workerSectionRefs.current[worker]
+        if (!section) continue
+
+        const rect = section.getBoundingClientRect()
+        if (rect.top <= cutoff && rect.bottom > cutoff) {
+          currentWorker = worker
+          break
+        }
+        if (rect.top <= cutoff) currentWorker = worker
+      }
+
+      setActiveWorker(previous => previous === currentWorker ? previous : currentWorker)
+    }
+
+    updateActiveWorker()
+    window.addEventListener('scroll', updateActiveWorker, { passive: true })
+    window.addEventListener('resize', updateActiveWorker)
+    return () => {
+      window.removeEventListener('scroll', updateActiveWorker)
+      window.removeEventListener('resize', updateActiveWorker)
+    }
+  }, [filteredRows])
+
 
   function cloneRows(source: SheetRow[]) {
     return source.map(row => ({ ...row }))
