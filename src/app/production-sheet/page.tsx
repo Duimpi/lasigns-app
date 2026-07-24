@@ -661,7 +661,7 @@ export default function ProductionSheetPage() {
             const workerRows = sortRowsByDate(filteredRows.filter(row => row.worker === worker))
             return (
               <section key={worker} className="card overflow-visible">
-                <div className="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3">
+                <div className="sticky top-52 z-40 flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3 shadow-elevated">
                   <div>
                     <h2 className="font-display text-xl tracking-wide text-text-primary">{worker}</h2>
                     <p className="text-xs text-text-muted">{workerRows.filter(rowHasText).length} active sheet rows</p>
