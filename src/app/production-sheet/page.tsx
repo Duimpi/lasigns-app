@@ -584,7 +584,7 @@ export default function ProductionSheetPage() {
 
   return (
     <AppShell>
-      <div className="px-6 pb-6 pt-44 space-y-4">
+      <div className="px-6 pb-6 pt-52 space-y-4">
         <div className="fixed left-56 right-0 top-0 z-[60] border-b border-border bg-bg/95 px-6 py-2 backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
@@ -644,13 +644,24 @@ export default function ProductionSheetPage() {
               Reset Test Data
             </button>
           </div>
+          <div className="mt-2 overflow-hidden rounded border border-black bg-bg">
+            <div
+              className="grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
+              style={{ gridTemplateColumns: gridTemplate }}
+            >
+              <div className="border-l border-r border-b border-black px-1 py-1.5 text-center">Actions</div>
+              {COLUMNS.map(column => (
+                <div key={column.key} className="border-r border-b border-black px-1 py-1.5">{column.label}</div>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="space-y-5">
           {WORKERS.map(worker => {
             const workerRows = sortRowsByDate(filteredRows.filter(row => row.worker === worker))
             return (
               <section key={worker} className="card overflow-visible">
-                <div className="sticky top-[170px] z-40 flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3 shadow-elevated">
+                <div className="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3">
                   <div>
                     <h2 className="font-display text-xl tracking-wide text-text-primary">{worker}</h2>
                     <p className="text-xs text-text-muted">{workerRows.filter(rowHasText).length} active sheet rows</p>
@@ -661,18 +672,8 @@ export default function ProductionSheetPage() {
                   </button>
                 </div>
 
-                <div className="overflow-x-auto overscroll-x-contain">
+                <div className="overflow-visible">
                   <div className="min-w-[1360px] xl:min-w-0">
-                    <div
-                      className="grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
-                      style={{ gridTemplateColumns: gridTemplate }}
-                    >
-                      <div className="border-l border-r border-b border-black px-1 py-1.5 text-center">Actions</div>
-                      {COLUMNS.map(column => (
-                        <div key={column.key} className="border-r border-b border-black px-1 py-1.5">{column.label}</div>
-                      ))}
-                    </div>
-
                     {workerRows.map((row, rowIndex) => (
                       <div
                         key={row.id}
