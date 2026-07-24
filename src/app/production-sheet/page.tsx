@@ -82,6 +82,31 @@ function todayDate() {
   const now = new Date()
   return `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`
 }
+
+function rowDateValue(date: string) {
+  const match = date.trim().match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/)
+  if (!match) return Number.POSITIVE_INFINITY
+
+  const day = Number(match[1])
+  const month = Number(match[2])
+  const year = match[3] ? Number(match[3].length === 2 ? `20${match[3]}` : match[3]) : new Date().getFullYear()
+
+  if (!day || !month || month > 12 || day > 31) return Number.POSITIVE_INFINITY
+  return new Date(year, month - 1, day).getTime()
+}
+
+function sortRowsByDate(rows: SheetRow[]) {
+  return [...rows].sort((a, b) => {
+    const aHasText = rowHasText(a)
+    const bHasText = rowHasText(b)
+    if (aHasText !== bHasText) return aHasText ? -1 : 1
+
+    const dateDifference = rowDateValue(a.date) - rowDateValue(b.date)
+    if (dateDifference !== 0) return dateDifference
+
+    return 0
+  })
+}
 function makeRow(worker: WorkerSection, seed: Partial<SheetRow> = {}): SheetRow {
   return {
     id: crypto.randomUUID(),
@@ -622,7 +647,7 @@ export default function ProductionSheetPage() {
         </div>
         <div className="space-y-5">
           {WORKERS.map(worker => {
-            const workerRows = filteredRows.filter(row => row.worker === worker)
+            const workerRows = sortRowsByDate(filteredRows.filter(row => row.worker === worker))
             return (
               <section key={worker} className="card overflow-visible">
                 <div className="sticky top-[170px] z-40 flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-3 shadow-elevated">
@@ -639,7 +664,7 @@ export default function ProductionSheetPage() {
                 <div className="overflow-x-auto overscroll-x-contain">
                   <div className="min-w-[1360px] xl:min-w-0">
                     <div
-                      className="sticky top-[230px] z-30 grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white shadow-elevated"
+                      className="sticky top-[230px] z-30 grid border-b border-black bg-bg text-[10px] font-semibold uppercase tracking-wider text-white"
                       style={{ gridTemplateColumns: gridTemplate }}
                     >
                       <div className="border-l border-r border-b border-black px-1 py-1.5 text-center">Actions</div>
