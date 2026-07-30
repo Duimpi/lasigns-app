@@ -8,13 +8,17 @@ import { Bell, X, CheckCheck } from 'lucide-react'
 import { formatTimeAgo } from '@/lib/utils'
 import type { AppNotification } from '@/types'
 
+// The production database does not currently provision the optional notifications table.
+// Keep the bell available without issuing a failing REST request on every page load.
+const NOTIFICATIONS_ENABLED = false
+
 export function NotificationBell() {
   const { profile } = useAuthStore()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
-    if (!profile) return
+    if (!profile || !NOTIFICATIONS_ENABLED) return
     loadNotifications()
     const channel = supabase
       .channel('notif-bell')
@@ -27,7 +31,7 @@ export function NotificationBell() {
   }, [profile])
 
   async function loadNotifications() {
-    if (!profile) return
+    if (!profile || !NOTIFICATIONS_ENABLED) return
     const { data } = await supabase
       .from('notifications')
       .select('*')
@@ -38,13 +42,14 @@ export function NotificationBell() {
   }
 
   async function markAllRead() {
-    if (!profile) return
+    if (!profile || !NOTIFICATIONS_ENABLED) return
     await supabase.from('notifications').update({ is_read: true })
       .eq('recipient_id', profile.id).eq('is_read', false)
     loadNotifications()
   }
 
   async function markRead(id: string) {
+    if (!NOTIFICATIONS_ENABLED) return
     await supabase.from('notifications').update({ is_read: true }).eq('id', id)
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
   }

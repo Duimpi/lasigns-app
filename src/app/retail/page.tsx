@@ -194,6 +194,14 @@ function normalizePriority(priority: string): Priority {
   return map[priority] || 'normal'
 }
 
+function saveErrorMessage(error: unknown) {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim()
+    if (message) return message
+  }
+  return error instanceof Error && error.message ? error.message : 'Failed to save retail job'
+}
+
 function RetailPageInner() {
   const { profile } = useAuthStore()
   const searchParams = useSearchParams()
@@ -377,8 +385,24 @@ function RetailPageInner() {
   }
 
   async function getNextRetailNumber(): Promise<string> {
-    const { data } = await supabase.rpc('get_next_retail_job_number')
-    return data as string
+    const { data, error } = await supabase.rpc('get_next_retail_job_number')
+    if (!error && typeof data === 'string' && data.trim()) return data.trim()
+
+    const year = new Date().getFullYear()
+    const { data: existing, error: lookupError } = await supabase
+      .from('job_cards')
+      .select('job_number')
+      .eq('is_retail', true)
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (lookupError) throw lookupError
+
+    const highest = (existing || []).reduce((max, row: { job_number?: string | null }) => {
+      const match = String(row.job_number || '').match(/^(\d+)-(\d{4})$/)
+      if (!match || Number(match[2]) !== year) return max
+      return Math.max(max, Number(match[1]))
+    }, 449)
+    return `${highest + 1}-${year}`
   }
 
   async function openCreate() {
@@ -389,7 +413,7 @@ function RetailPageInner() {
     reset({
       store: 'Shoprite', branch: '', job_number: nextNum, client_name: '',
       client_phone: '', client_email: '', retail_company: '', show_all_stores: false,
-      title: '', description: '', notes: '', status: 'Pending', priority: 'Medium',
+      title: '', description: '', notes: '', status: 'pending', priority: 'normal',
       assigned_worker: '', due_date: '', sales_rep: '', date_completed: '',
       vat_rate: 15, discount: 0, items: [{ description: '', note: '', quantity: 1, unit_price: 0, width: '', height: '', priceType: 'manual' as const }],
     })
@@ -490,7 +514,8 @@ function RetailPageInner() {
         const { error } = await supabase.from('job_cards').update(payload).eq('id', editingJob.id).eq('is_retail', true)
         if (error) throw error
         jobId = editingJob.id
-        await supabase.from('job_card_items').delete().eq('job_card_id', jobId)
+        const { error: deleteItemsError } = await supabase.from('job_card_items').delete().eq('job_card_id', jobId)
+        if (deleteItemsError) throw deleteItemsError
       } else {
         const jobNumber = data.job_number?.trim() || await getNextRetailNumber()
         const { data: created, error } = await supabase.from('job_cards').insert({ ...payload, job_number: jobNumber }).select().single()
@@ -499,7 +524,7 @@ function RetailPageInner() {
       }
 
       if (data.items.length > 0) {
-        await supabase.from('job_card_items').insert(
+        const { error: itemsError } = await supabase.from('job_card_items').insert(
           data.items.map((item, idx) => ({
             job_card_id: jobId,
             description: withItemNote(item.description, item.note),
@@ -516,14 +541,15 @@ function RetailPageInner() {
             sort_order: idx,
           }))
         )
+        if (itemsError) throw itemsError
       }
 
       const { error: activityError } = await supabase.from('activity_logs').insert({
         entity_type: 'retail_job',
         entity_id: jobId,
         action: editingJob ? 'updated' : 'created',
-        metadata: { store: data.store, branch: data.branch },
-        user_id: profile?.id,
+        details: { store: data.store, branch: data.branch },
+        performed_by: profile?.id,
       })
       if (activityError) console.warn('Activity log failed:', activityError)
 
@@ -531,7 +557,8 @@ function RetailPageInner() {
       setIsFormOpen(false)
       loadJobs()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save retail job')
+      console.error('[retail] save failed', err)
+      toast.error(saveErrorMessage(err))
     } finally { setIsSaving(false) }
   }
 
