@@ -9,7 +9,7 @@ import { TableSkeleton } from '@/components/ui/Loading'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { generateJobCardPDF, generateQuoteJobCardPDF } from '@/lib/pdf/generator'
-import { CheckCircle2, DollarSign, Download, Eye, Printer, RotateCcw, Trash2 } from 'lucide-react'
+import { BriefcaseBusiness, CheckCircle2, DollarSign, Download, Eye, FileText, Printer, RotateCcw, ShoppingBag, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type CompletedType = 'quote' | 'retail' | 'job_card'
@@ -18,6 +18,9 @@ type CompletedRow = {
   id: string
   number: string
   client_name: string | null
+  title: string | null
+  store: string | null
+  branch: string | null
   type: CompletedType
   status: string | null
   payment_status: string
@@ -68,6 +71,9 @@ function normalize(row: any, type: CompletedType, profiles: Map<string, string>)
     id: row.id,
     number: row.quote_number || row.job_number || '',
     client_name: row.client_name || null,
+    title: row.title || null,
+    store: row.store || null,
+    branch: row.branch || null,
     type,
     status: row.status || null,
     payment_status: inferPaymentStatus(row),
@@ -85,6 +91,13 @@ function typeLabel(type: CompletedType) {
   if (type === 'retail') return 'Retail'
   return 'Quote'
 }
+
+const storeColors: Record<string, string> = {
+  Shoprite: 'text-red-400',
+  Checkers: 'text-blue-400',
+  Usave: 'text-amber-400',
+}
+
 function missingSchemaColumn(error: any) {
   const message = String(error?.message || '')
   const match = message.match(/Could not find the '([^']+)' column/i)
@@ -322,10 +335,118 @@ export default function CompletedJobsPage() {
         if (statusFilter !== 'all' && row.status !== statusFilter) return false
         if (paymentFilter !== 'all' && row.payment_status !== paymentFilter) return false
         if (!q) return true
-        return row.number.toLowerCase().includes(q) || String(row.client_name || '').toLowerCase().includes(q)
+        return [
+          row.number,
+          row.client_name,
+          row.title,
+          row.store,
+          row.branch,
+        ].some(value => String(value || '').toLowerCase().includes(q))
       })
       .sort((a, b) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime())
   }, [rows, search, startDate, endDate, typeFilter, clientFilter, statusFilter, paymentFilter])
+
+  const retailRows = filtered.filter(row => row.type === 'retail')
+  const quoteRows = filtered.filter(row => row.type === 'quote')
+  const jobCardRows = filtered.filter(row => row.type === 'job_card')
+
+  function completedSection(sectionRows: CompletedRow[], type: CompletedType) {
+    if (sectionRows.length === 0) return null
+
+    const sectionDetails = {
+      retail: {
+        title: 'Retail Jobs',
+        subtitle: 'Shoprite, Checkers and Usave',
+        icon: ShoppingBag,
+      },
+      quote: {
+        title: 'Quotes',
+        subtitle: 'Completed customer quotes',
+        icon: FileText,
+      },
+      job_card: {
+        title: 'Job Cards',
+        subtitle: 'Completed production job cards',
+        icon: BriefcaseBusiness,
+      },
+    }[type]
+    const SectionIcon = sectionDetails.icon
+
+    return (
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-border bg-bg-elevated">
+          <div className="flex items-center gap-2.5">
+            <SectionIcon className="w-4 h-4 text-accent" />
+            <div>
+              <h2 className="font-semibold text-text-primary">{sectionDetails.title}</h2>
+              <p className="text-xs text-text-muted">{sectionDetails.subtitle}</p>
+            </div>
+          </div>
+          <span className="text-sm font-semibold text-text-secondary">{sectionRows.length} completed</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="data-table min-w-[1100px]">
+            <thead>
+              <tr>
+                <th>Number</th>
+                {type === 'retail' && <th>Store / Branch</th>}
+                <th>{type === 'retail' ? 'Title / Client' : 'Client'}</th>
+                <th>Amount</th>
+                <th>Payment Status</th>
+                <th>Completed Date</th>
+                <th>Completed By</th>
+                <th className="w-40">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionRows.map(row => (
+                <tr key={`${row.type}-${row.id}`}>
+                  <td className="font-mono text-accent font-semibold">{row.number}</td>
+                  {type === 'retail' && (
+                    <td>
+                      <span className={`font-semibold text-sm ${storeColors[row.store || ''] || 'text-text-primary'}`}>
+                        {row.store || '-'}
+                      </span>
+                      {row.branch && <p className="text-xs text-text-muted">{row.branch}</p>}
+                    </td>
+                  )}
+                  <td>
+                    {type === 'retail' ? (
+                      <>
+                        <span className="font-medium text-text-primary">{row.title || row.client_name || '-'}</span>
+                        {row.title && row.client_name && <p className="text-xs text-text-muted">{row.client_name}</p>}
+                      </>
+                    ) : (
+                      row.client_name || '-'
+                    )}
+                  </td>
+                  <td className="font-semibold">{formatCurrency(row.amount)}</td>
+                  <td><StatusBadge status={row.payment_status} /></td>
+                  <td>{row.completed_at ? formatDate(row.completed_at) : '-'}</td>
+                  <td>{row.completed_by_name}</td>
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
+                      {row.type === 'quote' && (
+                        <button onClick={() => moveQuoteBack(row)} className="btn-icon text-accent" title="Move back to Quotes"><RotateCcw className="w-3.5 h-3.5" /></button>
+                      )}
+                      {String(row.payment_status || '').toLowerCase() !== 'paid' && (
+                        <button onClick={() => markCompletedPaid(row)} className="btn-icon text-emerald-400" title="Mark paid"><DollarSign className="w-3.5 h-3.5" /></button>
+                      )}
+                      <button onClick={() => downloadCompleted(row)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => printCompleted(row)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <AppShell>
@@ -376,51 +497,22 @@ export default function CompletedJobsPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Search number or client..." className="max-w-xs" />
         </div>
 
-        <div className="card overflow-hidden">
-          {isLoading ? <TableSkeleton rows={8} cols={7} /> : filtered.length === 0 ? (
+        {isLoading ? (
+          <div className="card overflow-hidden"><TableSkeleton rows={8} cols={7} /></div>
+        ) : filtered.length === 0 ? (
+          <div className="card overflow-hidden">
             <div className="py-16 text-center">
               <CheckCircle2 className="w-12 h-12 text-text-muted mx-auto mb-3 opacity-30" />
               <p className="text-text-muted">No completed jobs found for this filter.</p>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="data-table min-w-[1000px]">
-                <thead>
-                  <tr>
-                    <th>Number</th><th>Client</th><th>Type</th><th>Amount</th><th>Payment Status</th><th>Completed Date</th><th>Completed By</th><th className="w-40">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(row => (
-                    <tr key={`${row.type}-${row.id}`}>
-                      <td className="font-mono text-accent font-semibold">{row.number}</td>
-                      <td>{row.client_name || '-'}</td>
-                      <td>{typeLabel(row.type)}</td>
-                      <td className="font-semibold">{formatCurrency(row.amount)}</td>
-                      <td><StatusBadge status={row.payment_status} /></td>
-                      <td>{row.completed_at ? formatDate(row.completed_at) : '-'}</td>
-                      <td>{row.completed_by_name}</td>
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => viewCompleted(row)} className="btn-icon" title="View"><Eye className="w-3.5 h-3.5" /></button>
-                          {row.type === 'quote' && (
-                            <button onClick={() => moveQuoteBack(row)} className="btn-icon text-accent" title="Move back to Quotes"><RotateCcw className="w-3.5 h-3.5" /></button>
-                          )}
-                          {String(row.payment_status || '').toLowerCase() !== 'paid' && (
-                            <button onClick={() => markCompletedPaid(row)} className="btn-icon text-emerald-400" title="Mark paid"><DollarSign className="w-3.5 h-3.5" /></button>
-                          )}
-                          <button onClick={() => downloadCompleted(row)} className="btn-icon" title="Download PDF"><Download className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => printCompleted(row)} className="btn-icon" title="Print"><Printer className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => deleteCompleted(row)} className="btn-icon text-red-400" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {completedSection(retailRows, 'retail')}
+            {completedSection(quoteRows, 'quote')}
+            {completedSection(jobCardRows, 'job_card')}
+          </div>
+        )}
       </div>
     </AppShell>
   )
