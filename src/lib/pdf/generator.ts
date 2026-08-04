@@ -16,15 +16,27 @@ type JobCardPrintOptions = {
   itemEnd?: number
   totalItems?: number
   showPrices?: boolean
+  descriptionLines?: string[]
+  noteLines?: string[]
+  commentLines?: string[]
+  notesContinuation?: boolean
 }
 
 const JOB_CARD_ROWS_PER_PAGE = 18
+const JOB_CARD_ROW_H = 6.2
+const JOB_CARD_NOTE_LINE_H = 2.45
+const JOB_CARD_NOTE_TOP_SPACE = 10
+const JOB_CARD_PRICED_BOTTOM_H = 32
+const JOB_CARD_UNPRICED_BOTTOM_H = 21
 const QUOTE_MIN_ROW_H = 6.2
 const QUOTE_DESC_FONT_SIZE = 7.2
 const QUOTE_DESC_LINE_H = 3.1
+const QUOTE_NOTE_LINE_H = 2.8
+const QUOTE_NOTE_TOP_SPACE = 10
 const QUOTE_BOTTOM_H = 21
 const QUOTE_TABLE_START_Y = 64
 const QUOTE_TABLE_AVAILABLE_H = 210 - 5 - QUOTE_BOTTOM_H - QUOTE_TABLE_START_Y
+const QUOTE_CONTENT_BUDGET = QUOTE_TABLE_AVAILABLE_H + QUOTE_BOTTOM_H
 
 function chunkJobItems<T>(items: T[] = [], size = JOB_CARD_ROWS_PER_PAGE): T[][] {
   if (items.length === 0) return [[]]
@@ -70,6 +82,95 @@ function chunkQuoteItemsByHeight(doc: jsPDF, items: any[] = [], descWidth: numbe
 
   if (chunk.length) chunks.push(chunk)
   return chunks
+}
+
+type JobCardPagePlan = {
+  items: any[]
+  descriptionLines: string[]
+  noteLines: string[]
+  commentLines: string[]
+  notesContinuation: boolean
+  itemStart: number
+  itemEnd: number
+}
+
+function wrapPreservedLines(doc: jsPDF, value: unknown, width: number, fontSize = 5.8) {
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(fontSize)
+  return String(value || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .flatMap(line => doc.splitTextToSize(line, width))
+}
+
+function jobCardContentBudget(showPrices: boolean) {
+  return (JOB_CARD_ROWS_PER_PAGE * JOB_CARD_ROW_H) + (showPrices ? JOB_CARD_PRICED_BOTTOM_H : JOB_CARD_UNPRICED_BOTTOM_H)
+}
+
+function jobCardTextCapacity(itemCount: number, showPrices: boolean) {
+  const availableBottom = jobCardContentBudget(showPrices) - (itemCount * JOB_CARD_ROW_H)
+  return Math.max(0, Math.floor((availableBottom - JOB_CARD_NOTE_TOP_SPACE) / JOB_CARD_NOTE_LINE_H))
+}
+
+function buildJobCardPagePlans(doc: jsPDF, job: JobCard, showPrices: boolean): JobCardPagePlan[] {
+  const itemChunks = chunkJobItems(job.items || [])
+  let itemNumber = 1
+  const pages: JobCardPagePlan[] = itemChunks.map(items => {
+    const itemStart = items.length ? itemNumber : 0
+    const itemEnd = items.length ? itemNumber + items.length - 1 : 0
+    itemNumber = itemEnd + 1
+    return {
+      items,
+      descriptionLines: [],
+      noteLines: [],
+      commentLines: [],
+      notesContinuation: false,
+      itemStart,
+      itemEnd,
+    }
+  })
+
+  const pricedColumnWidth = ((148 - 10 - 4) / 2) - 3
+  const unpricedCommentWidth = 91
+  const fulfillmentLines = fulfillmentLinesFromNotes(job.notes)
+  let descriptionLines = showPrices ? wrapPreservedLines(doc, job.description, pricedColumnWidth) : []
+  let noteLines = showPrices
+    ? [...fulfillmentLines, ...wrapPreservedLines(doc, visibleNotes(job.notes), pricedColumnWidth)]
+    : []
+  let commentLines = showPrices
+    ? []
+    : wrapPreservedLines(doc, [fulfillmentLines.join(' | '), job.description, visibleNotes(job.notes)].filter(Boolean).join('\n'), unpricedCommentWidth)
+
+  let pageIndex = pages.length - 1
+  while (descriptionLines.length || noteLines.length || commentLines.length) {
+    let page = pages[pageIndex]
+    if (!page || page.descriptionLines.length || page.noteLines.length || page.commentLines.length) {
+      page = {
+        items: [],
+        descriptionLines: [],
+        noteLines: [],
+        commentLines: [],
+        notesContinuation: true,
+        itemStart: 0,
+        itemEnd: 0,
+      }
+      pages.push(page)
+      pageIndex = pages.length - 1
+    }
+
+    const capacity = Math.max(1, jobCardTextCapacity(page.items.length, showPrices))
+    page.descriptionLines = descriptionLines.slice(0, capacity)
+    page.noteLines = noteLines.slice(0, capacity)
+    page.commentLines = commentLines.slice(0, capacity)
+    descriptionLines = descriptionLines.slice(capacity)
+    noteLines = noteLines.slice(capacity)
+    commentLines = commentLines.slice(capacity)
+
+    if (descriptionLines.length || noteLines.length || commentLines.length) pageIndex += 1
+  }
+
+  return pages
 }
 
 function numberValue(value: unknown) {
@@ -338,22 +439,46 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // ── TABLE ROWS ────────────────────────────────────────────
   const items = job.items || []
-  const ROW_H = 6.2
-  const MAX_ROWS = JOB_CARD_ROWS_PER_PAGE
+  const colGap = 4
+  const colW = (iW - colGap) / 2
+  const pricedDescriptionLines = options.descriptionLines
+    ?? wrapPreservedLines(doc, job.description, colW - 3)
+  const pricedNoteLines = options.noteLines
+    ?? [...fulfillmentLinesFromNotes(job.notes), ...wrapPreservedLines(doc, visibleNotes(job.notes), colW - 3)]
+  const unpricedCommentLines = options.commentLines
+    ?? wrapPreservedLines(
+      doc,
+      [fulfillmentLinesFromNotes(job.notes).join(' | '), job.description, visibleNotes(job.notes)]
+        .filter(Boolean)
+        .join('\n'),
+      91,
+    )
+  const textLineCount = showPrices
+    ? Math.max(pricedDescriptionLines.length, pricedNoteLines.length)
+    : unpricedCommentLines.length
+  const minimumBottomH = showPrices ? JOB_CARD_PRICED_BOTTOM_H : JOB_CARD_UNPRICED_BOTTOM_H
+  const desiredBottomH = Math.max(
+    minimumBottomH,
+    JOB_CARD_NOTE_TOP_SPACE + (textLineCount * JOB_CARD_NOTE_LINE_H),
+  )
+  const contentBudget = jobCardContentBudget(showPrices)
+  const rowsAllowedByText = Math.max(0, Math.floor((contentBudget - desiredBottomH) / JOB_CARD_ROW_H))
+  const rowsToDraw = Math.max(items.length, Math.min(JOB_CARD_ROWS_PER_PAGE, rowsAllowedByText))
+  const bottomH = contentBudget - (rowsToDraw * JOB_CARD_ROW_H)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)
 
-  for (let i = 0; i < MAX_ROWS; i++) {
+  for (let i = 0; i < rowsToDraw; i++) {
     const item = items[i]
     const rowY = y
 
     // Vertical column separators
     doc.setDrawColor(180, 180, 180)
     doc.setLineWidth(0.2)
-    doc.line(COL.size.x, rowY, COL.size.x, rowY + ROW_H)
-    doc.line(COL.material.x, rowY, COL.material.x, rowY + ROW_H)
-    if (showPrices) doc.line(COL.unit.x, rowY, COL.unit.x, rowY + ROW_H)
+    doc.line(COL.size.x, rowY, COL.size.x, rowY + JOB_CARD_ROW_H)
+    doc.line(COL.material.x, rowY, COL.material.x, rowY + JOB_CARD_ROW_H)
+    if (showPrices) doc.line(COL.unit.x, rowY, COL.unit.x, rowY + JOB_CARD_ROW_H)
 
     if (item) {
       doc.setTextColor(0, 0, 0)
@@ -391,9 +516,9 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     // Horizontal row line
     doc.setDrawColor(180, 180, 180)
     doc.setLineWidth(0.15)
-    doc.line(xOffset + m, rowY + ROW_H, xOffset + m + iW, rowY + ROW_H)
+    doc.line(xOffset + m, rowY + JOB_CARD_ROW_H, xOffset + m + iW, rowY + JOB_CARD_ROW_H)
 
-    y += ROW_H
+    y += JOB_CARD_ROW_H
   }
 
   // ── BOTTOM SECTION ────────────────────────────────────────
@@ -403,36 +528,27 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
 
   // Comments + Totals box
   const bottomY = y
-  const bottomH = showPrices ? 32 : 21
   const totalsX = xOffset + m + iW - 42
   const totalsW = 42
 
-  const wrapCommentLines = (value: string | undefined, width: number, limit: number) => {
-    const rawLines = String(value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-    return rawLines.flatMap(line => doc.splitTextToSize(line, width)).slice(0, limit)
-  }
-
   if (showPrices) {
-    const colGap = 4
-    const colW = (iW - colGap) / 2
     const leftX = xOffset + m + 1
     const rightX = xOffset + m + colW + colGap + 1
-    const descLines = wrapCommentLines(job.description, colW - 3, 7)
     const fulfillmentLines = fulfillmentLinesFromNotes(job.notes)
-    const noteLines = [
-      ...fulfillmentLines,
-      ...wrapCommentLines(visibleNotes(job.notes), colW - 3, 7),
-    ].slice(0, 7)
 
     doc.setFontSize(6.4)
     doc.setFont('helvetica', 'bold')
-    doc.text('Comments:', leftX, bottomY + 5)
-    doc.text(fulfillmentLines.length ? 'Fulfilment / Notes:' : 'Notes:', rightX, bottomY + 5)
+    doc.text(options.notesContinuation ? 'Comments continued:' : 'Comments:', leftX, bottomY + 5)
+    doc.text(
+      options.notesContinuation ? 'Notes continued:' : (fulfillmentLines.length ? 'Fulfilment / Notes:' : 'Notes:'),
+      rightX,
+      bottomY + 5,
+    )
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(5.8)
     doc.setTextColor(0, 0, 0)
-    if (descLines.length) doc.text(descLines, leftX, bottomY + 9)
-    if (noteLines.length) doc.text(noteLines, rightX, bottomY + 9)
+    if (pricedDescriptionLines.length) doc.text(pricedDescriptionLines, leftX, bottomY + 9)
+    if (pricedNoteLines.length) doc.text(pricedNoteLines, rightX, bottomY + 9)
     doc.setDrawColor(180, 180, 180)
     doc.setLineWidth(0.2)
     doc.line(xOffset + m + colW + colGap / 2, bottomY, xOffset + m + colW + colGap / 2, bottomY + bottomH)
@@ -440,19 +556,13 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     // Comments label
     doc.setFontSize(7)
     doc.setFont('helvetica', 'bold')
-    doc.text('Comments:', xOffset + m + 1, bottomY + 5)
+    doc.text(options.notesContinuation ? 'Comments continued:' : 'Comments:', xOffset + m + 1, bottomY + 5)
 
-    const commentWidth = totalsX - (xOffset + m) - 5
-    const fulfillmentText = fulfillmentLinesFromNotes(job.notes).join(' | ')
-    const commentParts = [fulfillmentText, job.description, visibleNotes(job.notes)].map(part => String(part || '').trim()).filter(Boolean)
-    const commentLines = commentParts.length
-      ? doc.splitTextToSize(commentParts.join(' | '), commentWidth).slice(0, 3)
-      : []
-    if (commentLines.length) {
+    if (unpricedCommentLines.length) {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(5.8)
       doc.setTextColor(0, 0, 0)
-      doc.text(commentLines, xOffset + m + 1, bottomY + 8.4)
+      doc.text(unpricedCommentLines, xOffset + m + 1, bottomY + 8.4)
     }
 
     // Comment lines (dotted)
@@ -461,7 +571,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
     doc.setLineWidth(0.2)
     for (let i = 0; i < 2; i++) {
       const ly = bottomY + 10 + i * 5
-      if (!commentLines.length) {
+      if (!unpricedCommentLines.length) {
         doc.line(xOffset + m + 1, ly, totalsX - 2, ly)
       }
     }
@@ -545,19 +655,21 @@ export function generateJobCardPDF(job: JobCard, _showPrices = false): jsPDF {
     format: 'a4',
   })
 
-  const itemChunks = chunkJobItems(job.items || [])
-  itemChunks.forEach((items, idx) => {
+  const pagePlans = buildJobCardPagePlans(doc, job, _showPrices)
+  pagePlans.forEach((plan, idx) => {
     if (idx > 0) doc.addPage('a4', 'landscape')
-    const itemStart = (idx * JOB_CARD_ROWS_PER_PAGE) + 1
-    const itemEnd = Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job.items || []).length)
-    const pageJob = withItemChunk(job, items)
+    const pageJob = withItemChunk(job, plan.items)
     const options = {
       pageNumber: idx + 1,
-      totalPages: itemChunks.length,
-      itemStart,
-      itemEnd,
+      totalPages: pagePlans.length,
+      itemStart: plan.itemStart,
+      itemEnd: plan.itemEnd,
       totalItems: (job.items || []).length,
       showPrices: _showPrices,
+      descriptionLines: plan.descriptionLines,
+      noteLines: plan.noteLines,
+      commentLines: plan.commentLines,
+      notesContinuation: plan.notesContinuation,
     }
     drawSingleJobCard(doc, pageJob, 0, options)
     drawSingleJobCard(doc, pageJob, 148.5, options)
@@ -576,28 +688,38 @@ export function generateTwoJobCardsPDF(job1: JobCard, job2: JobCard): jsPDF {
     format: 'a4',
   })
 
-  const job1Chunks = chunkJobItems(job1.items || [])
-  const job2Chunks = chunkJobItems(job2.items || [])
-  const pageCount = Math.max(job1Chunks.length, job2Chunks.length)
+  const job1Plans = buildJobCardPagePlans(doc, job1, false)
+  const job2Plans = buildJobCardPagePlans(doc, job2, false)
+  const pageCount = Math.max(job1Plans.length, job2Plans.length)
 
   for (let idx = 0; idx < pageCount; idx++) {
     if (idx > 0) doc.addPage('a4', 'landscape')
 
-    const job1Items = job1Chunks[idx] || []
-    const job2Items = job2Chunks[idx] || []
+    const job1Plan = job1Plans[idx]
+    const job2Plan = job2Plans[idx]
+    const job1Items = job1Plan?.items || []
+    const job2Items = job2Plan?.items || []
     drawSingleJobCard(doc, withItemChunk(job1, job1Items), 0, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: job1Items.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
-      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job1.items || []).length),
+      itemStart: job1Plan?.itemStart || 0,
+      itemEnd: job1Plan?.itemEnd || 0,
       totalItems: (job1.items || []).length,
+      descriptionLines: job1Plan?.descriptionLines || [],
+      noteLines: job1Plan?.noteLines || [],
+      commentLines: job1Plan?.commentLines || [],
+      notesContinuation: job1Plan?.notesContinuation || false,
     })
     drawSingleJobCard(doc, withItemChunk(job2, job2Items), 148.5, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: job2Items.length ? (idx * JOB_CARD_ROWS_PER_PAGE) + 1 : 0,
-      itemEnd: Math.min((idx + 1) * JOB_CARD_ROWS_PER_PAGE, (job2.items || []).length),
+      itemStart: job2Plan?.itemStart || 0,
+      itemEnd: job2Plan?.itemEnd || 0,
       totalItems: (job2.items || []).length,
+      descriptionLines: job2Plan?.descriptionLines || [],
+      noteLines: job2Plan?.noteLines || [],
+      commentLines: job2Plan?.commentLines || [],
+      notesContinuation: job2Plan?.notesContinuation || false,
     })
   }
 
@@ -622,6 +744,62 @@ type QuoteJobCardPrintInput = {
   fulfillment_lines?: string[]
   items?: { description: string; quantity: number; unit_price?: number; total?: number; line_total?: number; size?: string | null }[]
   created_at?: string
+}
+
+type QuotePagePlan = {
+  items: any[]
+  noteLines: string[]
+  notesContinuation: boolean
+  itemStart: number
+  itemEnd: number
+}
+
+function quoteNotesLines(doc: jsPDF, quote: QuoteJobCardPrintInput, width: number) {
+  return wrapPreservedLines(
+    doc,
+    [(quote.fulfillment_lines || []).join('\n'), quote.notes || ''].filter(Boolean).join('\n'),
+    width,
+    6.5,
+  )
+}
+
+function quoteItemsHeight(doc: jsPDF, items: any[], descWidth: number) {
+  return items.reduce((height, item) => height + quoteItemRowHeight(doc, item, descWidth), 0)
+}
+
+function quoteTextCapacity(doc: jsPDF, items: any[], descWidth: number) {
+  const availableBottom = QUOTE_CONTENT_BUDGET - quoteItemsHeight(doc, items, descWidth)
+  return Math.max(0, Math.floor((availableBottom - QUOTE_NOTE_TOP_SPACE) / QUOTE_NOTE_LINE_H))
+}
+
+function buildQuotePagePlans(doc: jsPDF, quote: QuoteJobCardPrintInput, descWidth: number): QuotePagePlan[] {
+  const chunks = chunkQuoteItemsByHeight(doc, quote.items || [], descWidth)
+  let itemNumber = 1
+  const pages = chunks.map(items => {
+    const itemStart = items.length ? itemNumber : 0
+    const itemEnd = items.length ? itemNumber + items.length - 1 : 0
+    itemNumber = itemEnd + 1
+    return { items, noteLines: [], notesContinuation: false, itemStart, itemEnd }
+  })
+
+  let remaining = quoteNotesLines(doc, quote, 86)
+  let pageIndex = pages.length - 1
+  while (remaining.length) {
+    let page = pages[pageIndex]
+    const capacity = page ? quoteTextCapacity(doc, page.items, descWidth) : 0
+    if (!page || capacity === 0 || page.noteLines.length) {
+      page = { items: [], noteLines: [], notesContinuation: true, itemStart: 0, itemEnd: 0 }
+      pages.push(page)
+      pageIndex = pages.length - 1
+    }
+
+    const pageCapacity = Math.max(1, quoteTextCapacity(doc, page.items, descWidth))
+    page.noteLines = remaining.slice(0, pageCapacity)
+    remaining = remaining.slice(pageCapacity)
+    if (remaining.length) pageIndex += 1
+  }
+
+  return pages
 }
 
 function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOffset: number, options: JobCardPrintOptions = {}) {
@@ -771,7 +949,13 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
   doc.line(xOffset + m, y, xOffset + m + iW, y)
 
   const items = quote.items || []
-  const bottomH = QUOTE_BOTTOM_H
+  const plannedNoteLines = options.noteLines
+    ?? (isLastPage ? quoteNotesLines(doc, quote, 86) : [])
+  const desiredBottomH = Math.max(
+    QUOTE_BOTTOM_H,
+    QUOTE_NOTE_TOP_SPACE + (plannedNoteLines.length * QUOTE_NOTE_LINE_H),
+  )
+  const bottomH = Math.min(QUOTE_CONTENT_BUDGET, desiredBottomH)
   const bottomY = H - m - bottomH
   doc.setFont('helvetica', 'normal')
 
@@ -835,13 +1019,10 @@ function drawSingleQuotePrintCard(doc: jsPDF, quote: QuoteJobCardPrintInput, xOf
 
   doc.setFontSize(6.8)
   doc.setFont('helvetica', 'bold')
-  doc.text('Notes:', xOffset + m + 1, bottomY + 5)
+  doc.text(options.notesContinuation ? 'Notes continued:' : 'Notes:', xOffset + m + 1, bottomY + 5)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  const fulfillmentLines = isLastPage ? (quote.fulfillment_lines || []) : []
-  const noteText = [fulfillmentLines.join('\n'), quote.notes || ''].filter(Boolean).join('\n')
-  const notesLines = isLastPage && noteText ? doc.splitTextToSize(noteText, totalsX - (xOffset + m) - 4).slice(0, 6) : []
-  if (notesLines.length) doc.text(notesLines, xOffset + m + 1, bottomY + 9)
+  if (plannedNoteLines.length) doc.text(plannedNoteLines, xOffset + m + 1, bottomY + 9)
   else if (!isLastPage) doc.text('Continued on next page', xOffset + m + 1, bottomY + 9)
 
   doc.setDrawColor(0, 0, 0)
@@ -899,34 +1080,34 @@ export function generateQuoteJobCardPDF(quote: QuoteJobCardPrintInput, secondQuo
   })
 
   const quoteDescWidth = 55 - 2
-  const leftChunks = chunkQuoteItemsByHeight(doc, quote.items || [], quoteDescWidth)
-  const rightChunks = chunkQuoteItemsByHeight(doc, secondQuote.items || [], quoteDescWidth)
-  const pageCount = Math.max(leftChunks.length, rightChunks.length)
-  let leftItemStart = 1
-  let rightItemStart = 1
+  const leftPlans = buildQuotePagePlans(doc, quote, quoteDescWidth)
+  const rightPlans = buildQuotePagePlans(doc, secondQuote, quoteDescWidth)
+  const pageCount = Math.max(leftPlans.length, rightPlans.length)
 
   for (let idx = 0; idx < pageCount; idx++) {
     if (idx > 0) doc.addPage('a4', 'landscape')
-    const leftItems = leftChunks[idx] || []
-    const rightItems = rightChunks[idx] || []
-    const leftItemEnd = leftItems.length ? leftItemStart + leftItems.length - 1 : 0
-    const rightItemEnd = rightItems.length ? rightItemStart + rightItems.length - 1 : 0
+    const leftPlan = leftPlans[idx]
+    const rightPlan = rightPlans[idx]
+    const leftItems = leftPlan?.items || []
+    const rightItems = rightPlan?.items || []
     drawSingleQuotePrintCard(doc, withItemChunk(quote, leftItems), 0, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: leftItems.length ? leftItemStart : 0,
-      itemEnd: leftItemEnd,
+      itemStart: leftPlan?.itemStart || 0,
+      itemEnd: leftPlan?.itemEnd || 0,
       totalItems: (quote.items || []).length,
+      noteLines: leftPlan?.noteLines || [],
+      notesContinuation: leftPlan?.notesContinuation || false,
     })
     drawSingleQuotePrintCard(doc, withItemChunk(secondQuote, rightItems), 148.5, {
       pageNumber: idx + 1,
       totalPages: pageCount,
-      itemStart: rightItems.length ? rightItemStart : 0,
-      itemEnd: rightItemEnd,
+      itemStart: rightPlan?.itemStart || 0,
+      itemEnd: rightPlan?.itemEnd || 0,
       totalItems: (secondQuote.items || []).length,
+      noteLines: rightPlan?.noteLines || [],
+      notesContinuation: rightPlan?.notesContinuation || false,
     })
-    leftItemStart = leftItemEnd + 1
-    rightItemStart = rightItemEnd + 1
   }
 
   return doc
