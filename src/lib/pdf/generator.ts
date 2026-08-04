@@ -23,6 +23,7 @@ type JobCardPrintOptions = {
 }
 
 const JOB_CARD_ROWS_PER_PAGE = 18
+const JOB_CARD_LAYOUT_ROWS = JOB_CARD_ROWS_PER_PAGE + 1
 const JOB_CARD_ROW_H = 6.2
 const JOB_CARD_NOTE_LINE_H = 2.45
 const JOB_CARD_NOTE_TOP_SPACE = 10
@@ -105,7 +106,7 @@ function wrapPreservedLines(doc: jsPDF, value: unknown, width: number, fontSize 
 }
 
 function jobCardContentBudget(showPrices: boolean) {
-  return (JOB_CARD_ROWS_PER_PAGE * JOB_CARD_ROW_H) + (showPrices ? JOB_CARD_PRICED_BOTTOM_H : JOB_CARD_UNPRICED_BOTTOM_H)
+  return (JOB_CARD_LAYOUT_ROWS * JOB_CARD_ROW_H) + (showPrices ? JOB_CARD_PRICED_BOTTOM_H : JOB_CARD_UNPRICED_BOTTOM_H)
 }
 
 function jobCardTextCapacity(itemCount: number, showPrices: boolean) {
@@ -463,7 +464,7 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   )
   const contentBudget = jobCardContentBudget(showPrices)
   const rowsAllowedByText = Math.max(0, Math.floor((contentBudget - desiredBottomH) / JOB_CARD_ROW_H))
-  const rowsToDraw = Math.max(items.length, Math.min(JOB_CARD_ROWS_PER_PAGE, rowsAllowedByText))
+  const rowsToDraw = Math.max(items.length, Math.min(JOB_CARD_LAYOUT_ROWS, rowsAllowedByText))
   const bottomH = contentBudget - (rowsToDraw * JOB_CARD_ROW_H)
 
   doc.setFont('helvetica', 'normal')
@@ -610,29 +611,6 @@ function drawSingleJobCard(doc: jsPDF, job: JobCard, xOffset: number, options: J
   doc.setDrawColor(0, 0, 0)
   doc.setLineWidth(0.5)
   doc.line(xOffset + m, y, xOffset + m + iW, y)
-
-  // ── SALES REP + DATE COMPLETED ────────────────────────────
-  y += 1
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Sales Representative:', xOffset + m + 1, y + 4)
-
-  const repName = job.sales_rep || ''
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.text(repName, xOffset + m + 34, y + 4)
-
-  doc.setLineDashPattern([0.5, 0.5], 0)
-  doc.setDrawColor(100, 100, 100)
-  doc.setLineWidth(0.2)
-  doc.line(xOffset + m + 34, y + 5, xOffset + m + 80, y + 5)
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
-  doc.text('Date Completed:', xOffset + m + 82, y + 4)
-  doc.setLineDashPattern([0.5, 0.5], 0)
-  doc.line(xOffset + m + 108, y + 5, xOffset + m + iW, y + 5)
-  doc.setLineDashPattern([], 0)
 
   // ── DOTTED CUT LINE between copies ───────────────────────
   if (xOffset === 0) {
