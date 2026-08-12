@@ -523,7 +523,7 @@ function QuotesPageInner() {
 
       const quotePayload = {
         client_id: client?.id || null,
-        client_name: client?.name || data.client_name,
+        client_name: data.client_name.trim(),
         client_email: data.client_email || null,
         client_address: data.client_address || null,
         status: data.status,
@@ -898,7 +898,11 @@ function QuotesPageInner() {
                   {...register('client_name')}
                   className="input"
                   placeholder="Search or type client name..."
-                  onChange={(e) => { register('client_name').onChange(e); setClientSearch(e.target.value) }}
+                  onChange={(e) => {
+                    register('client_name').onChange(e)
+                    setValue('client_id', undefined, { shouldDirty: true })
+                    setClientSearch(e.target.value)
+                  }}
                 />
                 {clientSearch && filteredClients.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-20 bg-bg-elevated border border-border rounded-md shadow-elevated mt-1 max-h-48 overflow-y-auto">
