@@ -40,7 +40,7 @@ const SHOPRITE_CHICRITE_BRANCHES = [
   'Shoprite Liquor Goreangab (Liquor)',
 ]
 const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
-  Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
+  Shoprite: ['Shoprite', 'Shoprite ChicRite', 'Grootfontein Liquor Store', ...SHOPRITE_CHICRITE_BRANCHES],
   Checkers: ['Checkers'],
   Usave: ['Usave'],
 }
