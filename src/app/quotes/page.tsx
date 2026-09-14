@@ -1092,10 +1092,22 @@ function QuotesPageInner() {
                       <input {...register(`items.${i}.height`)} className="input" placeholder="H" />
                     </div>
                     <div className="col-span-1">
-                      <input {...register(`items.${i}.quantity`)} type="number" step="any" min="0" className="input" />
+                      <input
+                        {...register(`items.${i}.quantity`)}
+                        type="number"
+                        step="any"
+                        min="0"
+                        className="input min-w-0 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
                     </div>
                     <div className="col-span-2">
-                      <input {...register(`items.${i}.unit_price`)} type="number" step="0.01" min="0" className="input" />
+                      <input
+                        {...register(`items.${i}.unit_price`)}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="input min-w-0 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
                     </div>
                     <div className="col-span-1 text-right text-sm font-semibold text-text-primary">
                       {formatCurrency(

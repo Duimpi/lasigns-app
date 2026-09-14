@@ -18,9 +18,12 @@ import { z } from 'zod'
 import toast from 'react-hot-toast'
 import {
   Plus, Upload, Trash2, Phone, Mail, Building2,
-  MapPin, ChevronRight, X, AlertTriangle, Download
+  MapPin, ChevronLeft, ChevronRight, X, AlertTriangle, Download
 } from 'lucide-react'
 import type { Client } from '@/types'
+
+const CLIENTS_PER_PAGE = 100
+const CLIENT_FETCH_BATCH = 1000
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -44,6 +47,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientWithContact[]>([])
   const [filtered, setFiltered] = useState<ClientWithContact[]>([])
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
   const [historyClient, setHistoryClient] = useState<Client | null>(null)
   const [clientJobs, setClientJobs] = useState<any[]>([])
@@ -86,6 +90,7 @@ export default function ClientsPage() {
 
   const filterClients = useCallback(
     debounce((list: ClientWithContact[], q: string) => {
+      setPage(1)
       if (!q.trim()) {
         setFiltered(list)
         return
@@ -103,6 +108,15 @@ export default function ClientsPage() {
   useEffect(() => {
     filterClients(clients, search)
   }, [clients, search, filterClients])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / CLIENTS_PER_PAGE))
+  const currentPage = Math.min(page, pageCount)
+  const pageStart = (currentPage - 1) * CLIENTS_PER_PAGE
+  const visibleClients = filtered.slice(pageStart, pageStart + CLIENTS_PER_PAGE)
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount)
+  }, [page, pageCount])
 
   async function loadClientHistory(client: Client) {
     setHistoryClient(client)
@@ -140,17 +154,29 @@ export default function ClientsPage() {
   async function loadClients() {
     setIsLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('clients')
-        .select(`
-          *,
-          phones:client_phones(*),
-          emails:client_emails(*)
-        `)
-        .order('name', { ascending: true })
+      const loaded: ClientWithContact[] = []
+      let from = 0
 
-      if (error) throw error
-      setClients((data as ClientWithContact[]) || [])
+      while (true) {
+        const { data, error } = await supabase
+          .from('clients')
+          .select(`
+            *,
+            phones:client_phones(*),
+            emails:client_emails(*)
+          `)
+          .order('name', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + CLIENT_FETCH_BATCH - 1)
+
+        if (error) throw error
+        const batch = (data as ClientWithContact[]) || []
+        loaded.push(...batch)
+        if (batch.length < CLIENT_FETCH_BATCH) break
+        from += CLIENT_FETCH_BATCH
+      }
+
+      setClients(loaded)
     } catch (err) {
       toast.error('Failed to load clients')
     } finally {
@@ -396,7 +422,10 @@ export default function ClientsPage() {
     <AppShell>
       <PageHeader
         title="CLIENTS"
-        subtitle={`${filtered.length} of ${clients.length} contacts`}
+        subtitle={search.trim()
+          ? `${filtered.length} matches in ${clients.length} contacts`
+          : `${filtered.length ? pageStart + 1 : 0}-${Math.min(pageStart + CLIENTS_PER_PAGE, filtered.length)} of ${clients.length} contacts`
+        }
         actions={
           <>
             <button onClick={() => setIsImportOpen(true)} className="btn-secondary btn-sm">
@@ -433,6 +462,7 @@ export default function ClientsPage() {
               )}
             </div>
           ) : (
+            <>
             <table className="data-table">
               <thead>
                 <tr>
@@ -445,7 +475,7 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(client => (
+                {visibleClients.map(client => (
                   <tr key={client.id} onClick={() => openEdit(client)}>
                     <td>
                       <div className="font-medium">{client.name}</div>
@@ -509,6 +539,39 @@ export default function ClientsPage() {
                 ))}
               </tbody>
             </table>
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+                <p className="text-sm text-text-muted">
+                  Showing {pageStart + 1}-{Math.min(pageStart + CLIENTS_PER_PAGE, filtered.length)} of {filtered.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => setPage(value => Math.max(1, value - 1))}
+                    disabled={currentPage === 1}
+                    aria-label="Previous clients page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </button>
+                  <span className="min-w-[92px] text-center text-sm text-text-secondary">
+                    Page {currentPage} of {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => setPage(value => Math.min(pageCount, value + 1))}
+                    disabled={currentPage === pageCount}
+                    aria-label="Next clients page"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
