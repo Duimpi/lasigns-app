@@ -30,17 +30,19 @@ const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
 const SHOPRITE_CHICRITE_BRANCHES = [
-  'Shoprite Grootfontein ChicRite',
   'Shoprite Goreangab ChicRite',
+  'Shoprite Grootfontein ChicRite',
   'Shoprite Independence ChicRite',
-  'Shoprite Lafrenz ChicRite',
   'Shoprite Katima Mulilo ChicRite',
-  'Shoprite Rundu ChicRite',
-  'Shoprite Liquor Ohangwena (Liquor)',
+  'Shoprite Lafrenz ChicRite',
   'Shoprite Liquor Goreangab (Liquor)',
+  'Shoprite Liquor Grootfontein',
+  'Shoprite Liquor Ohangwena (Liquor)',
+  'Shoprite Okahandja ChicRite',
+  'Shoprite Rundu ChicRite',
 ]
 const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
-  Shoprite: ['Shoprite', 'Shoprite ChicRite', 'Grootfontein Liquor Store', ...SHOPRITE_CHICRITE_BRANCHES],
+  Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
   Checkers: ['Checkers'],
   Usave: ['Usave'],
 }
@@ -372,7 +374,9 @@ function RetailPageInner() {
         ].map(name => ({ id: 'u-'+name, store: 'Usave', name, is_liquor: false })),
         ...['Babylon Liquor', 'Katutura Liquor'].map(name => ({ id: 'ul-'+name, store: 'Usave', name, is_liquor: true })),
       ]
-      setBranches(fallback as any)
+      setBranches((fallback as RetailBranch[]).sort(
+        (a, b) => a.store.localeCompare(b.store) || a.name.localeCompare(b.name)
+      ))
     }
   }
 
