@@ -75,6 +75,7 @@ export function ReceptionDispatchAlerts() {
   useEffect(() => {
     if (!canView) return
     let isMounted = true
+    let refreshTimer: number | null = null
 
     async function loadAlerts() {
       const { data } = await supabase
@@ -82,21 +83,35 @@ export function ReceptionDispatchAlerts() {
         .select('id, quote_number, client_name, total, notes, created_at')
         .eq('status', 'completed')
         .eq('is_retail', false)
+        .or(`notes.like.%${DELIVERY_PENDING_TAG}%,notes.like.%${COURIER_PENDING_TAG}%`)
         .order('created_at', { ascending: false })
 
       if (!isMounted) return
       setAlerts(toDispatchAlerts(data || []))
     }
 
+    function scheduleRefresh() {
+      if (document.visibilityState === 'hidden') return
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(loadAlerts, 250)
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') scheduleRefresh()
+    }
+
     loadAlerts()
-    const timer = window.setInterval(loadAlerts, 30000)
     const channel = supabase.channel('reception-dispatch-alerts')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotes' }, loadAlerts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotes' }, scheduleRefresh)
       .subscribe()
+    window.addEventListener('focus', scheduleRefresh)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
 
     return () => {
       isMounted = false
-      window.clearInterval(timer)
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      window.removeEventListener('focus', scheduleRefresh)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
       supabase.removeChannel(channel)
     }
   }, [canView])

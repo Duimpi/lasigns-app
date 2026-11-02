@@ -45,6 +45,10 @@ const RECEPTION_PENDING_TAGS = [
   ['[LA_INSTALL_PENDING]', '[LA_INSTALL_DONE]'],
 ]
 
+const RECEPTION_PENDING_FILTER = RECEPTION_PENDING_TAGS
+  .map(([pending]) => `notes.like.%${pending}%`)
+  .join(',')
+
 function countReceptionWork(rows: any[] = []) {
   return rows.filter(row => {
     const notes = String(row.notes || '')
@@ -60,6 +64,7 @@ export function Sidebar() {
 
   useEffect(() => {
     let isMounted = true
+    let refreshTimer: number | null = null
 
     async function loadReceptionCount() {
       const [quotesResult, jobsResult] = await Promise.all([
@@ -67,11 +72,13 @@ export function Sidebar() {
           .from('quotes')
           .select('id, notes')
           .eq('status', 'completed')
-          .eq('is_retail', false),
+          .eq('is_retail', false)
+          .or(RECEPTION_PENDING_FILTER),
         supabase
           .from('job_cards')
           .select('id, notes')
-          .eq('status', 'completed'),
+          .eq('status', 'completed')
+          .or(RECEPTION_PENDING_FILTER),
       ])
 
       if (!isMounted) return
@@ -79,11 +86,31 @@ export function Sidebar() {
       setReceptionCount(count)
     }
 
+    function scheduleRefresh() {
+      if (document.visibilityState === 'hidden') return
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(loadReceptionCount, 250)
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === 'visible') scheduleRefresh()
+    }
+
     loadReceptionCount()
-    const timer = window.setInterval(loadReceptionCount, 60000)
+    const channel = supabase
+      .channel('sidebar-reception-count')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotes' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_cards' }, scheduleRefresh)
+      .subscribe()
+    window.addEventListener('focus', scheduleRefresh)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
     return () => {
       isMounted = false
-      window.clearInterval(timer)
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      window.removeEventListener('focus', scheduleRefresh)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      supabase.removeChannel(channel)
     }
   }, [])
 
