@@ -45,7 +45,7 @@ const SHOPRITE_CHICRITE_BRANCHES = [
 const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
   Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
   Checkers: ['Checkers'],
-  Usave: ['Usave'],
+  Usave: ['Usave', 'USave Opuwo Liquor Store'],
 }
 const RETAIL_CONTACT_TAGS = ['RETAIL_COMPANY', 'RETAIL_PHONE', 'RETAIL_EMAIL', 'RETAIL_ALL_STORES']
 const ITEM_NOTE_RE = /\s*\[LA_ITEM_NOTE:([^\]]*)\]/i
