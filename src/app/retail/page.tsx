@@ -30,6 +30,7 @@ const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent']
 const WORKERS: Worker[] = ['Nicole', 'Geraldo', 'Bets-Mari']
 const STORES: RetailStore[] = ['Shoprite', 'Checkers', 'Usave']
 const SHOPRITE_CHICRITE_BRANCHES = [
+  'Shoprite Express Etango',
   'Shoprite Goreangab ChicRite',
   'Shoprite Grootfontein ChicRite',
   'Shoprite Independence ChicRite',
@@ -322,7 +323,9 @@ function RetailPageInner() {
 
   async function loadBranches() {
     const { data } = await supabase.from('retail_branches').select('*').order('store').order('name')
-    const dbBranches = (data as RetailBranch[]) || []
+    const dbBranches = ((data as RetailBranch[]) || []).filter(branch =>
+      !(branch.store === 'Usave' && branch.name === 'Usave Oshakati Etango')
+    )
     const withChicRiteBranches = (list: RetailBranch[]) => {
       const existing = new Set(list.map(branch => `${branch.store}:${branch.name}`))
       const missing = Object.entries(EXTRA_BRANCHES).flatMap(([store, names]) =>
