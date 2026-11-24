@@ -41,6 +41,7 @@ const SHOPRITE_CHICRITE_BRANCHES = [
   'Shoprite Liquor Ohangwena (Liquor)',
   'Shoprite Okahandja ChicRite',
   'Shoprite Rundu ChicRite',
+  'Shoprite Tsumeb ChicRite',
 ]
 const EXTRA_BRANCHES: Record<RetailStore, string[]> = {
   Shoprite: ['Shoprite', 'Shoprite ChicRite', ...SHOPRITE_CHICRITE_BRANCHES],
@@ -1052,3 +1053,4 @@ export default function RetailPage() {
     </Suspense>
   )
 }
+
